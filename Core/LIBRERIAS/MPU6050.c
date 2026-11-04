@@ -151,7 +151,7 @@ char tele1[20];
     HAL_Delay(100);
 
     // 4️ Configura divisor de muestreo
-    imu_data = 0x07;   // (1 kHz / (1 + 7)) = 125 Hz
+    imu_data = 0x01;   // (1 kHz / (1 + 1)) = 500 Hz: dato nuevo cada 2 ms (el TIM6 lee cada 5 ms)
     HAL_I2C_Mem_Write(&imu_i2c, MPU6050_ADDR, MPU6050_SMPLRT_DIV, 1, &imu_data, 1, 300);
 
     // 5️ Filtro digital (DLPF) para suavizar ruido

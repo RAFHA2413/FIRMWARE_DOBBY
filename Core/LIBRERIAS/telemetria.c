@@ -84,6 +84,7 @@ void manda_pid_parametros(void)
   AGREGA("*RECTGIR%.2f*", PARAM.giro_recta);
   AGREGA("*FRENOV%.2f*", PARAM.velo_freno);     //PWM
   AGREGA("*FRENOMS%.0f*", PARAM.freno_ms);      //ms
+  AGREGA("*ACELR%.0f*", PARAM.acel_recta);      //PWM/s
   AGREGA("*LINCO=%d*", (int)PARAM.linea_color);
 
   uartx_write_text(&TELE_UART, tele);   //una sola llamada para toda la trama

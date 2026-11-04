@@ -282,10 +282,11 @@ void Carrera_control(void)
         break;
       }
 
-      //sube la velocidad base con la rampa CARRERA_ACEL hasta V_LINEA (no patina)
+      //sube la velocidad base con la rampa ACEL_R hasta V_LINEA: si la recta se detecto
+      //tarde, alcanza a ganar poca velocidad antes de la curva
       //(si V_LINEA es menor que la velocidad actual, baja de una)
       float v_obj = Carrera_v_recta();
-      CARRERA.v_base += CARRERA_ACEL * (CARRERA_TS_MS / 1000.0f);
+      CARRERA.v_base += PARAM.acel_recta * (CARRERA_TS_MS / 1000.0f);
       if (CARRERA.v_base > v_obj) CARRERA.v_base = v_obj;
 
       if (!Carrera_sigue_linea(CARRERA.v_base, 1)) break;   //se detuvo

@@ -118,7 +118,7 @@ uint32_t recta_velo=12000;
 
 
 //flag_text ya no se usa: la bandera de TEST es PRUEBA.activo (pruebas.h)
-uint8_t  luces=0;     //LUZON / LUZOFF: 1 = WS2812 en blanco
+uint8_t  luces=0;     //LUZ=n/: 0 = apagadas, 1..6 = color de LUZ_COLOR
 uint8_t  play=0;      //musica sonando (falta la libreria mp3)
 //codigos ir (IRSTART, IRSTOP...): ver ircodigo.h
 
@@ -215,15 +215,25 @@ void lee_ir()
 //=============================================================================
 #define USA_MP3   0     //1 cuando se agregue la libreria mp3 (mp3_next, mp3_play_x ...)
 
-//aviso en el WS2812 sin HAL_Delay: el delay hacia perder los comandos que llegaban
 static uint8_t  aviso = 0;
 static uint32_t t_aviso = 0;
+
+//colores del boton Luces, 
+#define LUZ_N_COLORES 6
+static const uint8_t LUZ_COLOR[LUZ_N_COLORES][3] = {
+  {255,   0,   0},   //1 rojo
+  {  0, 255,   0},   //2 verde
+  {  0,   0, 255},   //3 azul
+  {255, 180,   0},   //4 amarillo
+  {128,   0, 255},   //5 morado
+  {255, 255, 255},   //6 blanco
+};
 
 //color de fondo del WS2812 segun el estado del robot
 static void Color_base(void)
 {
   if (PRUEBA.activo) WS2812_Color(80, 60, 0);       //amarillo: TEST
-  else if (luces)    WS2812_Color(255, 255, 255);   //luces encendidas
+  else if (luces)    WS2812_Color(LUZ_COLOR[luces - 1][0], LUZ_COLOR[luces - 1][1], LUZ_COLOR[luces - 1][2]);
   else               WS2812_Color(0, 0, 0);
   WS2812_Manda_Trama();
 }
@@ -330,6 +340,18 @@ void procesa_rx(char *trama)
     return;
   }
 
+  if (strstr(trama, "LEEFLASH"))  //lee PARAM de la flash y lo aplica
+  {
+    if (Param_leer_flash())
+    {
+      Param_aplica();
+      uartx_write_text(&huart1, "FLASH: parametros leidos\r\n");
+      manda_pid_parametros();
+    }
+    else uartx_write_text(&huart1, "FLASH: no hay parametros guardados\r\n");
+    return;
+  }
+
   if (strstr(trama, "CALI"))      //calibra los sensores de linea
   {
     if (!Robot_quieto()) { uartx_write_text(&huart1, "CALI: detener el robot\r\n"); return; }
@@ -339,8 +361,11 @@ void procesa_rx(char *trama)
   }
 
   //---------------- 6) luces
-  if (strstr(trama, "LUZON"))  { luces = 1; return; }   //Aviso_tarea pone el color
-  if (strstr(trama, "LUZOFF")) { luces = 0; return; }
+  if (lee_num(trama, "LUZ=", &v))                       //Aviso_tarea pone el color
+  {
+    luces = ((v >= 1.0f) && (v <= (float)LUZ_N_COLORES)) ? (uint8_t)v : 0;   //fuera de rango: apaga
+    return;
+  }
 
   //---------------- 7) PID de linea (PARAM -> Param_aplica)
   if      (strstr(trama, "KP+")) { PARAM.kp += 1.0f;  pid_dir = 1; }
@@ -365,6 +390,7 @@ void procesa_rx(char *trama)
   else if (lee_num(trama, "RECTGIR=",  &v)) { PARAM.giro_recta  = v; pid_dir = 1; }   //GIRO_LIM (grados/s)
   else if (lee_num(trama, "RECTVEL=",  &v)) { PARAM.velo_recta  = v; pid_dir = 1; }   //V_LINEA (PWM)
   else if (lee_num(trama, "RECTLARG=", &v)) { PARAM.largo_recta = v; pid_dir = 1; }   //TRAMO (cm)
+  else if (lee_num(trama, "ACELR=",    &v)) { PARAM.acel_recta  = v; pid_dir = 1; }   //ACEL_R (PWM/s)
 
   //freno al salir de la recta (carrera.c, estado FRENO)
   else if (lee_num(trama, "FRENOV=",  &v)) { PARAM.velo_freno = v; pid_dir = 1; }     //V_FRENO (PWM)

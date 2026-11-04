@@ -56,6 +56,10 @@ PRUEBAS_ROBOT = ("MOTORES", "ENCODER", "SENSORES", "IMU")
 TX_ESPACIO_MS = 50
 # estados de la carrera, MISMO orden que el enum de carrera.h (*EST n*)
 ESTADOS_CARRERA = ("REPOSO", "ARRANQUE", "PID", "RECTA", "CURVA", "FRENO", "PERDIDO")     # tiempo entre comandos enviados (que no lleguen pegados en una trama)
+# boton Luces: (texto, fondo, letra). El indice es n de LUZ=n/, MISMO orden que LUZ_COLOR de main.c
+LUCES = (("OFF", "#a08040", NEGRO), ("ROJO", "#e02020", "white"), ("VERDE", "#20c020", NEGRO),
+         ("AZUL", "#2040e0", "white"), ("AMARILLO", "#ffd000", NEGRO),
+         ("MORADO", "#8000ff", "white"), ("BLANCO", "#f4f4f4", NEGRO))
 
 # color de linea que reporta el robot (*LINCO=n*), segun IR_ANA_SEN.h: blanco_ 0, negro_ 1
 COLOR_LINEA_ROBOT = {0: "BLANCO", 1: "NEGRO"}
@@ -518,11 +522,13 @@ class Panel(tk.Tk):
         self.campo(p, 130, 240, "V_BAS", 0, 0, 1000, 10, "%.0f", titulo="V_Bas", envia="VBASICA")
         self.campo(p, 240, 240, "V_GIR", 250, 0, 1000, 10, "%.0f", titulo="V_Gir", envia="VGIRO")
 
-        # sd
-        self.etiqueta(p, 360, 250, "GUARDA\n   SD")
+        # sd y flash
+        self.etiqueta(p, 360, 250, "GUARDA\nSD+FLASH")
         self.boton(p, 360, 290, "GUARDAR", lambda: self.enviar("GUARDASD"), ancho=8)
         self.etiqueta(p, 470, 250, "  LEE\n  SD")
         self.boton(p, 460, 290, "LEER", lambda: self.enviar("LEESD"), ancho=8)
+        self.etiqueta(p, 565, 250, "  LEE\nFLASH")
+        self.boton(p, 560, 290, "LEER", lambda: self.enviar("LEEFLASH"), ancho=8)
 
         # PWM manual de cada motor (lazo abierto, paso 1 de la calibracion)
         #manda PWMIZQ=valor/  y  PWMDER=valor/   (-1000..1000)
@@ -573,9 +579,10 @@ class Panel(tk.Tk):
                                      comando=lambda e: self.accion("MUSICA", e), width=5)
         self.bt_musica.place(x=715, y=468)
         self.etiqueta(p, 820, 448, "Luces")
-        self.bt_luces = Interruptor(p, "ON", "OFF", "#ffb000", "#a08040",
-                                    comando=lambda e: self.enviar("LUZON" if e else "LUZOFF"), width=5)
+        self.luz = 0                # indice en LUCES (0 = apagadas)
+        self.bt_luces = tk.Button(p, command=self.cambia_luces, font=F_ETIQ, bd=3, width=8)
         self.bt_luces.place(x=812, y=468)
+        self._pinta_luces()
 
         # rectas (carrera.c, estado RECTA). Error_LIM, TRAMO o V_LINEA en 0 = rectas apagadas
         #es recta si |posicion| <= Error_LIM  y  |giro_z| <= GIRO_LIM, durante TRAMO cm seguidos
@@ -591,6 +598,9 @@ class Panel(tk.Tk):
         #velocidad base en recta en PWM: 0 .. 1000 (igual que V_Bas)
         self.campo(p, 1060, 545, "V_LINEA", 500, 0, 1000, 10, "%.0f", titulo="V_LINEA",
                    envia="RECTVEL")
+        #rampa de V_Bas a V_LINEA en PWM/s. Mas baja: si detecta tarde gana poca velocidad
+        self.campo(p, 840, 545, "ACEL_R", 300, 50, 5000, 50, "%.0f", titulo="ACEL_R",
+                   envia="ACELR")
         # freno al salir de la recta (estado FRENO): base = V_FRENO hasta bajar a V_Bas
         #velocidad base mientras frena en PWM: 0 .. 1000 (0 = freno maximo)
         self.campo(p, 940, 650, "V_FRENO", 115, 0, 1000, 10, "%.0f", titulo="V_FRENO",
@@ -810,19 +820,32 @@ class Panel(tk.Tk):
         self.envia_campo("KP_V", "VKP", "%.2f")
         self.envia_campo("KI_V", "VKI", "%.0f")
 
+    def cambia_luces(self):
+        """cada clic pasa al color siguiente; despues del ultimo, apaga. Manda LUZ=n/
+        Sin conexion no cambia: el boton siempre muestra lo ultimo que se envio al robot"""
+        siguiente = (self.luz + 1) % len(LUCES)
+        if self.enviar(f"LUZ={siguiente}/"):
+            self.luz = siguiente
+            self._pinta_luces()
+
+    def _pinta_luces(self):
+        texto, fondo, letra = LUCES[self.luz]
+        self.bt_luces.config(text=texto, bg=fondo, fg=letra, activebackground=fondo,
+                             activeforeground=letra)
+
     def cambia_linea(self, blanco):
         """LINCO=0/ linea blanca,  LINCO=1/ linea negra  (IR_ANA_SEN.h: blanco_ 0, negro_ 1)"""
         self.enviar("LINCO=0/" if blanco else "LINCO=1/")
 
     def trama_dat(self):
         """arma la trama de parametros del firmware:
-        DAT/kp/ki/kd/Vb/Vg/tau/kaw/Kg/errrect/velrect/largorect/color/girorect/vfreno/tfreno/7/
-        el 7 final (PARAM_VERSION de parametros.h) indica que velrect y vfreno van en PWM"""
+        DAT/kp/ki/kd/Vb/Vg/tau/kaw/Kg/errrect/velrect/largorect/color/girorect/vfreno/tfreno/8/acelr/
+        el 8 (PARAM_VERSION de parametros.h) indica que velrect y vfreno van en PWM"""
         v = self.valor
         color = 0 if self.bt_linea.estado else 1      # 0 = blanca, 1 = negra
         return (f"DAT/{v('KP')}/{v('KI')}/{v('KD')}/{v('V_BAS')}/{v('V_GIR')}/{v('TAU')}/"
                 f"{v('KAW')}/{v('KG')}/{v('ERROR_LIM')}/{v('V_LINEA')}/{v('TRAMO')}/{color}/"
-                f"{v('GIRO_LIM')}/{v('V_FRENO')}/{v('T_FRENO')}/7/")
+                f"{v('GIRO_LIM')}/{v('V_FRENO')}/{v('T_FRENO')}/8/{v('ACEL_R')}/")
 
     def valor(self, nombre):
         try:
@@ -917,6 +940,7 @@ class Panel(tk.Tk):
         "RECTVEL": "V_LINEA_R",       # velocidad base en recta (PWM 0..1000)
         "FRENOV": "V_FRENO_R",        # velocidad base mientras frena (PWM 0..1000)
         "FRENOMS": "T_FRENO_R",       # tiempo maximo frenando (ms)
+        "ACELR": "ACEL_R_R",          # rampa de V_Bas a V_LINEA (PWM/s)
         "RECTERR": "ERROR_LIM_R",     # rango +- de la posicion para considerar recta
         "RECTGIR": "GIRO_LIM_R",      # rango +- de giro_z (grados/s) para considerar recta
         "RECTLARG": "TRAMO_R",        # cm seguidos en recta para pasar a V_LINEA
