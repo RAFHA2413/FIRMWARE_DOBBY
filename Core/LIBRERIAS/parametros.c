@@ -1,0 +1,155 @@
+/*
+ * parametros.c
+ *
+ *  Created on: Nov 2, 2026
+ *      Author: ALCIDES_RAMOS
+ */
+
+#include "parametros.h"
+#include "flash_interna.h"
+#include "PID.h"
+#include "IR_ANA_SEN.h"
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <stddef.h>
+
+#define PARAM_MARCA   0xD0BB2026u
+
+PARAMETROS PARAM;
+
+
+//valores por defecto (cuando la flash esta vacia o los datos no son validos)
+void Param_defecto(void)
+{
+  memset(&PARAM, 0, sizeof(PARAM));
+
+  //PID de direccion: los mismos valores de inicio de PID.h
+  PARAM.kp          = PID_DIR_KP;
+  PARAM.ki          = PID_DIR_KI;
+  PARAM.kd          = PID_DIR_KD;
+  PARAM.tau         = PID_DIR_TAU / PID_DIR_TS;   //se guarda en multiplos de Ts (ej. 5)
+  PARAM.kaw         = (PID_DIR_KI > 0.0f) ? (PID_DIR_KAW * PID_DIR_KP / PID_DIR_KI) : 0.3f; //factor de Ki/Kp (ej. 0.3)
+  PARAM.vel_giro    = PID_DIR_MAX;
+
+  PARAM.velo_basica = 0.0f;     //PWM 0..1000. 0 = queda en su sitio y solo corrige (primera prueba)
+  PARAM.kg          = 0.0f;
+
+  PARAM.error_recta = 0.0f;
+  PARAM.velo_recta  = 0.0f;
+  PARAM.largo_recta = 0.0f;
+
+  PARAM.linea_color = negro_;   //IR_ANA_SEN.h: blanco_ 0, negro_ 1
+}
+
+//pasa PARAM al PID de linea (PID_DIR) y al color de linea de los sensores.
+//llamar despues de Param_init y cada vez que se cambie un valor de PARAM
+void Param_aplica(void)
+{
+  if (PID_DIR.Ts <= 0.0f) PID_DIR_INIT();   //el PID necesita su Ts antes de sintonizar
+
+  if (PARAM.kp < 0.0f) PARAM.kp = 0.0f;
+  if (PARAM.ki < 0.0f) PARAM.ki = 0.0f;
+  if (PARAM.kd < 0.0f) PARAM.kd = 0.0f;
+  if (PARAM.tau < 1.0f) PARAM.tau = 1.0f;          //minimo Ts
+  if (PARAM.vel_giro < 0.0f) PARAM.vel_giro = -PARAM.vel_giro;
+
+  //tau en multiplos de Ts, kaw como factor de Ki/Kp (igual que el panel)
+  float kaw = (PARAM.kp > 0.0f) ? PARAM.kaw * PARAM.ki / PARAM.kp : 0.0f;
+  PID_Sintoniza(&PID_DIR, PARAM.kp, PARAM.ki, PARAM.kd, PARAM.tau * PID_DIR.Ts, kaw);
+  PID_DIR.out_max =  PARAM.vel_giro;
+  PID_DIR.out_min = -PARAM.vel_giro;
+
+  linea_color = (PARAM.linea_color != 0) ? negro_ : blanco_;
+}
+
+//crc de toda la struct menos el campo crc
+static uint32_t Param_calcula_crc(const PARAMETROS *p)
+{
+  return Flash_crc32(p, offsetof(PARAMETROS, crc));
+}
+
+//1 = los datos son validos
+static uint8_t Param_valido(const PARAMETROS *p)
+{
+  return (p->marca == PARAM_MARCA) &&
+         (p->version == PARAM_VERSION) &&
+         (p->crc == Param_calcula_crc(p));
+}
+
+
+uint8_t Param_init(void)
+{
+  PARAMETROS leido;
+  memcpy(&leido, (const void *)FLASH_PARAM_DIR, sizeof(leido));
+
+  if (Param_valido(&leido))
+  {
+    PARAM = leido;
+    return 1;
+  }
+
+  Param_defecto();
+  return 0;
+}
+
+
+//graba PARAM en la flash. Llamar SOLO con el robot detenido.
+uint8_t Param_guardar(void)
+{
+  PARAM.marca   = PARAM_MARCA;
+  PARAM.version = PARAM_VERSION;
+  PARAM.crc     = Param_calcula_crc(&PARAM);
+
+  //borra el sector de parametros, graba y verifica (1 = ok, 0 = error)
+  return Flash_guardar(FLASH_PARAM_DIR, FLASH_PARAM_TAM, &PARAM, sizeof(PARAM));
+}
+
+
+//lee una trama "DAT/kp/ki/kd/Vb/Vg/tau/kaw/Kg/errrect/velrect/largorect/color/"
+//y cambia los valores en RAM (no graba en flash)
+uint8_t Param_desde_trama(const char *trama)
+{
+  char copia[200];
+  float v[12];
+  uint8_t n = 0;
+
+  const char *ini = strstr(trama, "DAT/");
+  if (ini == NULL) return 0;
+
+  strncpy(copia, ini + 4, sizeof(copia) - 1);
+  copia[sizeof(copia) - 1] = 0;
+
+  char *tok = strtok(copia, "/\r\n");
+  while ((tok != NULL) && (n < 12))
+  {
+    v[n++] = strtof(tok, NULL);
+    tok = strtok(NULL, "/\r\n");
+  }
+
+  if (n < 12) return 0;   //trama incompleta: no cambia nada
+
+  PARAM.kp          = v[0];
+  PARAM.ki          = v[1];
+  PARAM.kd          = v[2];
+  PARAM.velo_basica = v[3];
+  PARAM.vel_giro    = v[4];
+  PARAM.tau         = v[5];
+  PARAM.kaw         = v[6];
+  PARAM.kg          = v[7];
+  PARAM.error_recta = v[8];
+  PARAM.velo_recta  = v[9];
+  PARAM.largo_recta = v[10];
+  PARAM.linea_color = (uint32_t)v[11];
+  return 1;
+}
+
+
+//escribe los valores actuales en el mismo formato de la trama
+void Param_a_trama(char *texto)
+{
+  sprintf(texto, "DAT/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%lu/\r\n",
+          PARAM.kp, PARAM.ki, PARAM.kd, PARAM.velo_basica, PARAM.vel_giro,
+          PARAM.tau, PARAM.kaw, PARAM.kg, PARAM.error_recta, PARAM.velo_recta,
+          PARAM.largo_recta, (unsigned long)PARAM.linea_color);
+}
