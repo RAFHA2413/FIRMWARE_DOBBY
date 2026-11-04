@@ -50,6 +50,8 @@ UMBRAL_LED = 0.5       # sensor normalizado (0..1) por encima de esto = LED ence
 # dato suelto entre asteriscos:  *j100.00*   *UPVELDER-3.20*   *mnan*
 #                (tambien con = en medio:  *LINCO=0*)
 DATO_AST = re.compile(r"\*([A-Za-z]+)\s*=?\s*(-?(?:\d+(?:[.,]\d+)?|nan|inf))\*")
+# inicio de las tramas de los sensores: traen siempre NUM_SENSORES valores
+INICIO_SENSORES = re.compile(r"(?:Nor|Cru)=")
 
 # pruebas del modo TEST, MISMO orden que el enum de pruebas.h (TESTSEL=n/ manda el indice)
 PRUEBAS_ROBOT = ("MOTORES", "ENCODER", "SENSORES", "IMU")
@@ -617,6 +619,11 @@ class Panel(tk.Tk):
 
         # trama recibida
         self.etiqueta(p, 225, 618, "TRAMA")
+        #lineas que llegaron con bytes perdidos en el enlace, de las de sensores que llegaron
+        self.tramas_ok, self.tramas_mal = 0, 0
+        self.lb_tramas = tk.Label(p, text="", bg=PANEL, fg=NEGRO, font=F_ETIQ)
+        self.lb_tramas.place(x=300, y=618)
+        self._pinta_tramas()
         marco = tk.Frame(p, bg=PANEL)
         marco.place(x=225, y=640, width=700, height=110)
         self.trama = tk.Text(marco, font=("Consolas", 9), bg="#e4e4e4", bd=2, relief="sunken")
@@ -857,8 +864,39 @@ class Panel(tk.Tk):
     # cada trama es una linea:  PREFIJO=v1/v2/v3/.../
 
     # para agregar una trama nueva: escribir su funcion y ponerla en TRAMAS
+    def _pinta_tramas(self):
+        self.lb_tramas.config(text=f"Tramas dañadas: {self.tramas_mal} de {self.tramas_ok + self.tramas_mal}",
+                              fg=ROJO if self.tramas_mal else NEGRO)
+
+    def _cuenta_trama(self, buena):
+        if buena:
+            self.tramas_ok += 1
+        else:
+            self.tramas_mal += 1
+        self._pinta_tramas()
+
+    def _trama_sensores(self, linea, inicio):
+        """si se perdieron bytes, pueden quedar restos pegados antes de Nor= o Cru=: se usa
+        desde el ultimo inicio, y solo si trae los NUM_SENSORES valores completos"""
+        prefijo, datos = linea[inicio:].split("=", 1)
+        try:
+            valores = self.numeros(datos)
+        except ValueError:
+            valores = []
+        completa = len(valores) == NUM_SENSORES
+        if completa:
+            self.TRAMAS[prefijo](self, valores)
+        self._cuenta_trama(completa and inicio == 0)
+
     def procesa_linea(self, linea):
         linea = linea.strip()
+        inicios = list(INICIO_SENSORES.finditer(linea))
+        if inicios:
+            self._trama_sensores(linea, inicios[-1].start())
+            return
+        if "*" in linea:                 # resto de un *dato* cortado: el texto del robot no lleva *
+            self._cuenta_trama(False)
+            return
         if "=" in linea:
             prefijo, datos = linea.split("=", 1)
             funcion = self.TRAMAS_TEXTO.get(prefijo.strip())
@@ -1126,6 +1164,8 @@ class Panel(tk.Tk):
                 self.log(f"no se pudo abrir {puerto}: {e}")
                 self.bt_conectar.set(False)
                 return
+            self.tramas_ok, self.tramas_mal = 0, 0
+            self._pinta_tramas()
             self.leyendo = True
             threading.Thread(target=self._lee_serial, daemon=True).start()
             self.log(f"conectado a {puerto} ({BAUDIOS})")
