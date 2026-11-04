@@ -363,11 +363,11 @@ void procesa_rx(char *trama)
   //rectas (carrera.c, estado RECTA)
   else if (lee_num(trama, "RECTERR=",  &v)) { PARAM.error_recta = v; pid_dir = 1; }   //Error_LIM (posicion)
   else if (lee_num(trama, "RECTGIR=",  &v)) { PARAM.giro_recta  = v; pid_dir = 1; }   //GIRO_LIM (grados/s)
-  else if (lee_num(trama, "RECTVEL=",  &v)) { PARAM.velo_recta  = v; pid_dir = 1; }   //V_LINEA (m/s)
+  else if (lee_num(trama, "RECTVEL=",  &v)) { PARAM.velo_recta  = v; pid_dir = 1; }   //V_LINEA (PWM)
   else if (lee_num(trama, "RECTLARG=", &v)) { PARAM.largo_recta = v; pid_dir = 1; }   //TRAMO (cm)
 
   //freno al salir de la recta (carrera.c, estado FRENO)
-  else if (lee_num(trama, "FRENOV=",  &v)) { PARAM.velo_freno = v; pid_dir = 1; }     //V_FRENO (m/s)
+  else if (lee_num(trama, "FRENOV=",  &v)) { PARAM.velo_freno = v; pid_dir = 1; }     //V_FRENO (PWM)
   else if (lee_num(trama, "FRENOMS=", &v)) { PARAM.freno_ms   = v; pid_dir = 1; }     //T_FRENO (ms)
 
   //color de linea: 0 = blanca, 1 = negra (IR_ANA_SEN.h)

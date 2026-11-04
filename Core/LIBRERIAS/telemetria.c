@@ -82,7 +82,7 @@ void manda_pid_parametros(void)
   AGREGA("*RECTVEL%.2f*", PARAM.velo_recta);
   AGREGA("*RECTLARG%.2f*", PARAM.largo_recta);
   AGREGA("*RECTGIR%.2f*", PARAM.giro_recta);
-  AGREGA("*FRENOV%.2f*", PARAM.velo_freno);     //m/s
+  AGREGA("*FRENOV%.2f*", PARAM.velo_freno);     //PWM
   AGREGA("*FRENOMS%.0f*", PARAM.freno_ms);      //ms
   AGREGA("*LINCO=%d*", (int)PARAM.linea_color);
 

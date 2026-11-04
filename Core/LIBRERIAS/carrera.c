@@ -99,19 +99,10 @@ static uint8_t Carrera_mide_recta(void)
   return 1;
 }
 
-//m/s del panel -> PWM equivalente (lo que usa la velocidad base), limitado 0..CARRERA_PWM_MAX
-static float Carrera_mps_a_pwm(float mps)
-{
-  float v = mps / CARRERA_MPS_POR_PWM;
-  if (v < 0.0f) v = 0.0f;
-  if (v > CARRERA_PWM_MAX) v = CARRERA_PWM_MAX;
-  return v;
-}
-
-//V_LINEA (m/s) como velocidad base en PWM
+//V_LINEA: velocidad base en recta (PWM 0..1000, Param_aplica ya revisa el rango)
 static float Carrera_v_recta(void)
 {
-  return Carrera_mps_a_pwm(PARAM.velo_recta);
+  return PARAM.velo_recta;
 }
 
 //sale de la recta: FRENO si va mas rapido que V_Bas (y T_FRENO > 0); si no, PID
@@ -309,7 +300,7 @@ void Carrera_control(void)
     {
       //velocidad base V_FRENO: el PID de velocidad de las llantas frena fuerte,
       //pero el PID de linea sigue corrigiendo (la curva ya empezo)
-      CARRERA.v_base = Carrera_mps_a_pwm(PARAM.velo_freno);
+      CARRERA.v_base = PARAM.velo_freno;               //PWM (Param_aplica ya revisa el rango)
       if (!Carrera_sigue_linea(CARRERA.v_base, 1)) break;   //se detuvo
 
       //FRENO -> PID: ya bajo a V_Bas, o paso el tiempo maximo T_FRENO

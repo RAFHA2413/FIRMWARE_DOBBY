@@ -15,10 +15,10 @@
  *  RECTA (panel: Error_LIM, GIRO_LIM, TRAMO, V_LINEA; se guardan en flash con PARAM):
  *    una muestra "es recta" si  |posicion| <= Error_LIM  y  |giro_z| <= GIRO_LIM
  *    (GIRO_LIM = 0: no mira el IMU). Si lleva TRAMO cm seguidos asi (distancia del encoder)
- *    PID -> RECTA: la velocidad base sube con la rampa CARRERA_ACEL hasta V_LINEA (m/s).
+ *    PID -> RECTA: la velocidad base sube con la rampa CARRERA_ACEL hasta V_LINEA (PWM).
  *    Error_LIM, TRAMO o V_LINEA en 0 = rectas apagadas.
  *
- *  FRENO (panel: V_FRENO m/s, T_FRENO ms): la primera muestra que NO es recta (viene curva)
+ *  FRENO (panel: V_FRENO PWM, T_FRENO ms): la primera muestra que NO es recta (viene curva)
  *    -> si el robot va mas rapido que V_Bas: velocidad base = V_FRENO (el PID de velocidad
  *       de las llantas frena fuerte, hasta con el motor al reves) sin dejar de seguir la linea.
  *       Termina cuando ROBOT.velocidad ya bajo a V_Bas, o a los T_FRENO ms -> PID.

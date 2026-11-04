@@ -352,6 +352,7 @@ class Panel(tk.Tk):
         self.ctrl = {}      # entradas del usuario
         self.ind = {}       # indicadores
         self.enviado = {}   # ultimo texto enviado de cada cuadro (para no repetir al salir)
+        self.editable = {}  # cuadros blancos que envian al robot: nombre -> (spinbox, formato)
         self.ser = None
         self.cola = queue.Queue()
         self.tx_cola = deque()      # comandos por enviar (uno cada TX_ESPACIO_MS)
@@ -408,6 +409,7 @@ class Panel(tk.Tk):
             sp.bind("<FocusOut>",
                     lambda e: self.envia_campo(nombre, envia, formato, solo_si_cambia=True))
             self.enviado[nombre] = formato % valor   # el valor inicial cuenta como ya enviado
+            self.editable[nombre] = (sp, formato)
         sp.place(x=x, y=y + 29)
         var.set(formato % valor)
         self.ctrl[nombre] = var
@@ -586,18 +588,22 @@ class Panel(tk.Tk):
         #cm seguidos en recta (distancia del encoder) antes de pasar a V_LINEA
         self.campo(p, 940, 545, "TRAMO", 30, 0, 500, 5, "%.0f", titulo="TRAMO cm",
                    envia="RECTLARG")
-        #velocidad base en recta en m/s: 0 .. 2.6 (= PWM 1000 * CARRERA_MPS_POR_PWM 0.0026)
-        self.campo(p, 1060, 545, "V_LINEA", 1.30, 0, 2.6, 0.05, "%.2f", titulo="V_LINEA m/s",
+        #velocidad base en recta en PWM: 0 .. 1000 (igual que V_Bas)
+        self.campo(p, 1060, 545, "V_LINEA", 500, 0, 1000, 10, "%.0f", titulo="V_LINEA",
                    envia="RECTVEL")
         # freno al salir de la recta (estado FRENO): base = V_FRENO hasta bajar a V_Bas
-        #velocidad base mientras frena, m/s 0 .. 2.6 (0 = freno maximo)
-        self.campo(p, 940, 650, "V_FRENO", 0.30, 0, 2.6, 0.05, "%.2f", titulo="V_FRENO",
+        #velocidad base mientras frena en PWM: 0 .. 1000 (0 = freno maximo)
+        self.campo(p, 940, 650, "V_FRENO", 115, 0, 1000, 10, "%.0f", titulo="V_FRENO",
                    envia="FRENOV")
         #tiempo maximo frenando (ms). 0 = sin freno
         self.campo(p, 1060, 650, "T_FRENO", 200, 0, 2000, 10, "%.0f", titulo="T_FRENO ms",
                    envia="FRENOMS")
         #cm que lleva el robot en recta ahora mismo (*RD*): sirve para elegir TRAMO
         self.indicador(p, 25, 600, "RECTA_CM", 8, titulo="EN RECTA cm", color_titulo=AZUL)
+        #LED verde: Error_LIM y GIRO_LIM se cumplen durante TRAMO cm seguidos (dato_recta_cm)
+        self.etiqueta(p, 1165, 576, "RECTA", AZUL)
+        self.led_recta = Led(p, d=28)
+        self.led_recta.place(x=1172, y=600)
 
         # trama recibida
         self.etiqueta(p, 225, 618, "TRAMA")
@@ -810,12 +816,13 @@ class Panel(tk.Tk):
 
     def trama_dat(self):
         """arma la trama de parametros del firmware:
-        DAT/kp/ki/kd/Vb/Vg/tau/kaw/Kg/errrect/velrect/largorect/color/girorect/vfreno/tfreno/"""
+        DAT/kp/ki/kd/Vb/Vg/tau/kaw/Kg/errrect/velrect/largorect/color/girorect/vfreno/tfreno/7/
+        el 7 final (PARAM_VERSION de parametros.h) indica que velrect y vfreno van en PWM"""
         v = self.valor
         color = 0 if self.bt_linea.estado else 1      # 0 = blanca, 1 = negra
         return (f"DAT/{v('KP')}/{v('KI')}/{v('KD')}/{v('V_BAS')}/{v('V_GIR')}/{v('TAU')}/"
                 f"{v('KAW')}/{v('KG')}/{v('ERROR_LIM')}/{v('V_LINEA')}/{v('TRAMO')}/{color}/"
-                f"{v('GIRO_LIM')}/{v('V_FRENO')}/{v('T_FRENO')}/")
+                f"{v('GIRO_LIM')}/{v('V_FRENO')}/{v('T_FRENO')}/7/")
 
     def valor(self, nombre):
         try:
@@ -907,8 +914,8 @@ class Panel(tk.Tk):
         "n": "TAU_R", "m": "KAW_R", "f": "KG_R",
         "vbas": "V_BAS_R", "g": "V_GIR_R",
         # rectas
-        "RECTVEL": "V_LINEA_R",       # velocidad base en recta (m/s)
-        "FRENOV": "V_FRENO_R",        # velocidad base mientras frena (m/s)
+        "RECTVEL": "V_LINEA_R",       # velocidad base en recta (PWM 0..1000)
+        "FRENOV": "V_FRENO_R",        # velocidad base mientras frena (PWM 0..1000)
         "FRENOMS": "T_FRENO_R",       # tiempo maximo frenando (ms)
         "RECTERR": "ERROR_LIM_R",     # rango +- de la posicion para considerar recta
         "RECTGIR": "GIRO_LIM_R",      # rango +- de giro_z (grados/s) para considerar recta
@@ -960,6 +967,17 @@ class Panel(tk.Tk):
     def dato_set_der(self, valor):              # *SETDE...*
         self.sp_rx["DER"] = valor
 
+    def dato_recta_cm(self, valor):             # *RD...*  cm seguidos en recta
+        # el robot pone RD en 0 apenas el error o el giro salen de su limite (carrera.c),
+        # asi que RD >= TRAMO significa que se cumplen los tres.
+        # TRAMO: el que tiene el robot; si aun no lo ha reportado (0), el del cuadro
+        try:
+            tramo = float(self.ind["TRAMO_R"].get())
+        except ValueError:
+            tramo = 0.0
+        tramo = tramo or self.valor("TRAMO")
+        self.led_recta.set(valor > 0 and valor >= tramo)
+
     def dato_test(self, valor):                 # *TST n*  bandera de TEST del robot
         on = int(valor) == 1
         self.led_test.set(on)
@@ -983,6 +1001,8 @@ class Panel(tk.Tk):
         if e != 0:                              # en carrera no llegan crudos: quedan en gris
             for lb in self.lb_crudo:
                 lb.config(fg="#808080")
+        else:                                   # en REPOSO ya no llega *RD*: apaga el LED
+            self.led_recta.set(False)
         reciente = time.monotonic() - self.t_run_local < 1.0
         if not reciente and (e != 0) != self.corriendo:
             self._pinta_run(e != 0)
@@ -1010,6 +1030,7 @@ class Panel(tk.Tk):
         "q": dato_vel_angular,
         "e": dato_posicion,
         "L": dato_hay_linea,
+        "RD": dato_recta_cm,
         "b": dato_bateria,
         "w": dato_vel_izq,
         "z": dato_vel_der,
@@ -1021,6 +1042,28 @@ class Panel(tk.Tk):
         "TSTE": dato_test_estado,
     }
 
+    def carga_cuadro(self, nombre_r, valor):
+        """parametro reportado por el robot (casilla gris KP_R) -> tambien a su cuadro blanco
+        (KP), para seguir cambiando desde ese valor. No toca el cuadro que se esta escribiendo.
+        Actualiza enviado: lo que trae el robot no se vuelve a mandar al salir del cuadro"""
+        nombre = nombre_r[:-2] if nombre_r.endswith("_R") else ""
+        if nombre not in self.editable:
+            return
+        sp, formato = self.editable[nombre]
+        try:
+            if self.focus_get() is sp:
+                return
+        except KeyError:                            # foco en la lista desplegable de un combobox
+            pass
+        try:
+            v = float(valor)
+        except ValueError:
+            return
+        if math.isfinite(v):
+            texto = formato % v
+            self.ctrl[nombre].set(texto)
+            self.enviado[nombre] = texto
+
     def procesa_dato(self, etiqueta, valor):
         funcion = self.DATOS_FUNCION.get(etiqueta)
         nombre = self.DATOS.get(etiqueta)
@@ -1029,6 +1072,7 @@ class Panel(tk.Tk):
             return
         if nombre:
             self.ind[nombre].set(valor)
+            self.carga_cuadro(nombre, valor)
             if etiqueta in self.COPIA:
                 self.ind[self.COPIA[etiqueta]].set(valor)
         if funcion:
@@ -1069,6 +1113,7 @@ class Panel(tk.Tk):
                 except Exception:
                     pass
             self.ser = None
+            self.led_recta.set(False)
             self.log("desconectado")
 
     def enviar(self, texto, urgente=False):
