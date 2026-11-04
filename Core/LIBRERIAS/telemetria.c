@@ -81,6 +81,9 @@ void manda_pid_parametros(void)
   AGREGA("*RECTERR%.2f*", PARAM.error_recta);
   AGREGA("*RECTVEL%.2f*", PARAM.velo_recta);
   AGREGA("*RECTLARG%.2f*", PARAM.largo_recta);
+  AGREGA("*RECTGIR%.2f*", PARAM.giro_recta);
+  AGREGA("*FRENOV%.2f*", PARAM.velo_freno);     //m/s
+  AGREGA("*FRENOMS%.0f*", PARAM.freno_ms);      //ms
   AGREGA("*LINCO=%d*", (int)PARAM.linea_color);
 
   uartx_write_text(&TELE_UART, tele);   //una sola llamada para toda la trama
@@ -117,6 +120,7 @@ void manda_operando(uint8_t sensores)
   AGREGA("*d%.2f*", PID_DIR.ud);
   AGREGA("*t%.2f*", CARRERA.giro);            //correccion total: PID + IMU (UT del panel)
   AGREGA("*VB%.0f*", CARRERA.v_base);         //velocidad base que se esta usando (con el IMU)
+  AGREGA("*RD%.0f*", CARRERA.recta_cm);       //cm que lleva seguidos en recta (para ajustar TRAMO)
   AGREGA("*q%.1f*", MPU6050.giro_z_f);
   AGREGA("*w%.3f*", LLANTA_IZQ.velocidad);
   AGREGA("*z%.3f*", LLANTA_DER.velocidad);

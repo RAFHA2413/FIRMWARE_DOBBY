@@ -575,15 +575,29 @@ class Panel(tk.Tk):
                                     comando=lambda e: self.enviar("LUZON" if e else "LUZOFF"), width=5)
         self.bt_luces.place(x=812, y=468)
 
-        # rectas
-        #rango +- del error de la linea para considerar que va en recta
-        self.campo(p, 940, 440, "ERROR_LIM", 1.5, 0, 20, 0.1, "%.1f", titulo="Error_LIM",
+        # rectas (carrera.c, estado RECTA). Error_LIM, TRAMO o V_LINEA en 0 = rectas apagadas
+        #es recta si |posicion| <= Error_LIM  y  |giro_z| <= GIRO_LIM, durante TRAMO cm seguidos
+        #rango +- de la posicion de la linea (-7.5..7.5) para considerar que va en recta
+        self.campo(p, 940, 440, "ERROR_LIM", 1.5, 0, 7.5, 0.1, "%.1f", titulo="Error_LIM",
                    envia="RECTERR")
-        self.campo(p, 1060, 440, "V_LINEA", 600, 0, 30000, 10, "%.0f", titulo="V_LINEA",
-                   envia="RECTVEL")
-        #cuantas muestras seguidas en recta (error en rango) antes de poner V_LINEA
-        self.campo(p, 940, 545, "TRAMO", 50, 0, 10000, 5, "%.0f", titulo="TRAMO",
+        #rango +- de la velocidad angular del IMU (grados/s). 0 = no mira el IMU
+        self.campo(p, 1060, 440, "GIRO_LIM", 40, 0, 500, 5, "%.0f", titulo="GIRO_LIM °/s",
+                   envia="RECTGIR")
+        #cm seguidos en recta (distancia del encoder) antes de pasar a V_LINEA
+        self.campo(p, 940, 545, "TRAMO", 30, 0, 500, 5, "%.0f", titulo="TRAMO cm",
                    envia="RECTLARG")
+        #velocidad base en recta en m/s: 0 .. 2.6 (= PWM 1000 * CARRERA_MPS_POR_PWM 0.0026)
+        self.campo(p, 1060, 545, "V_LINEA", 1.30, 0, 2.6, 0.05, "%.2f", titulo="V_LINEA m/s",
+                   envia="RECTVEL")
+        # freno al salir de la recta (estado FRENO): base = V_FRENO hasta bajar a V_Bas
+        #velocidad base mientras frena, m/s 0 .. 2.6 (0 = freno maximo)
+        self.campo(p, 940, 650, "V_FRENO", 0.30, 0, 2.6, 0.05, "%.2f", titulo="V_FRENO",
+                   envia="FRENOV")
+        #tiempo maximo frenando (ms). 0 = sin freno
+        self.campo(p, 1060, 650, "T_FRENO", 200, 0, 2000, 10, "%.0f", titulo="T_FRENO ms",
+                   envia="FRENOMS")
+        #cm que lleva el robot en recta ahora mismo (*RD*): sirve para elegir TRAMO
+        self.indicador(p, 25, 600, "RECTA_CM", 8, titulo="EN RECTA cm", color_titulo=AZUL)
 
         # trama recibida
         self.etiqueta(p, 225, 618, "TRAMA")
@@ -796,11 +810,12 @@ class Panel(tk.Tk):
 
     def trama_dat(self):
         """arma la trama de parametros del firmware:
-        DAT/kp/ki/kd/Vb/Vg/tau/kaw/Kg/errrect/velrect/largorect/color/"""
+        DAT/kp/ki/kd/Vb/Vg/tau/kaw/Kg/errrect/velrect/largorect/color/girorect/vfreno/tfreno/"""
         v = self.valor
         color = 0 if self.bt_linea.estado else 1      # 0 = blanca, 1 = negra
         return (f"DAT/{v('KP')}/{v('KI')}/{v('KD')}/{v('V_BAS')}/{v('V_GIR')}/{v('TAU')}/"
-                f"{v('KAW')}/{v('KG')}/{v('ERROR_LIM')}/{v('V_LINEA')}/{v('TRAMO')}/{color}/")
+                f"{v('KAW')}/{v('KG')}/{v('ERROR_LIM')}/{v('V_LINEA')}/{v('TRAMO')}/{color}/"
+                f"{v('GIRO_LIM')}/{v('V_FRENO')}/{v('T_FRENO')}/")
 
     def valor(self, nombre):
         try:
@@ -892,9 +907,13 @@ class Panel(tk.Tk):
         "n": "TAU_R", "m": "KAW_R", "f": "KG_R",
         "vbas": "V_BAS_R", "g": "V_GIR_R",
         # rectas
-        "RECTVEL": "V_LINEA_R",       # velocidad que pone el robot al detectar una recta
-        "RECTERR": "ERROR_LIM_R",     # rango +- del error para considerar recta
-        "RECTLARG": "TRAMO_R",        # largo (cuenta) para confirmar que es recta
+        "RECTVEL": "V_LINEA_R",       # velocidad base en recta (m/s)
+        "FRENOV": "V_FRENO_R",        # velocidad base mientras frena (m/s)
+        "FRENOMS": "T_FRENO_R",       # tiempo maximo frenando (ms)
+        "RECTERR": "ERROR_LIM_R",     # rango +- de la posicion para considerar recta
+        "RECTGIR": "GIRO_LIM_R",      # rango +- de giro_z (grados/s) para considerar recta
+        "RECTLARG": "TRAMO_R",        # cm seguidos en recta para pasar a V_LINEA
+        "RD": "RECTA_CM",             # cm que lleva en recta ahora (manda_operando)
         # PID de velocidad (VELO)
         "KPVEL": "KP_V_R", "KIVEL": "KI_V_R", "KDVEL": "KD_V_R",
         "TAUVEL": "TAU_V_R", "KAWVEL": "KAW_V_R",

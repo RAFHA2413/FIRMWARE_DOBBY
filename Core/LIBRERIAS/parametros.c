@@ -9,6 +9,7 @@
 #include "flash_interna.h"
 #include "PID.h"
 #include "IR_ANA_SEN.h"
+#include "carrera.h"        //CARRERA_MPS_POR_PWM y CARRERA_PWM_MAX (rango de V_LINEA / V_FRENO)
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -36,8 +37,12 @@ void Param_defecto(void)
   PARAM.kg          = 0.0f;
 
   PARAM.error_recta = 0.0f;
-  PARAM.velo_recta  = 0.0f;
+  PARAM.velo_recta  = PARAM_V_LINEA_DEF;   //m/s (las rectas siguen apagadas: error y largo en 0)
   PARAM.largo_recta = 0.0f;
+  PARAM.giro_recta  = 0.0f;     //0 = la recta se decide solo con el error de la linea
+
+  PARAM.velo_freno  = PARAM_V_FRENO_DEF;   //m/s
+  PARAM.freno_ms    = PARAM_T_FRENO_DEF;   //ms
 
   PARAM.linea_color = negro_;   //IR_ANA_SEN.h: blanco_ 0, negro_ 1
 }
@@ -53,6 +58,13 @@ void Param_aplica(void)
   if (PARAM.kd < 0.0f) PARAM.kd = 0.0f;
   if (PARAM.tau < 1.0f) PARAM.tau = 1.0f;          //minimo Ts
   if (PARAM.vel_giro < 0.0f) PARAM.vel_giro = -PARAM.vel_giro;
+
+  //V_LINEA y V_FRENO en m/s (0 .. PWM 1000). Un valor mas alto es uno viejo en PWM
+  //(ej. 600 de la SD): en vez de salir a fondo se pone el valor por defecto
+  const float v_max = CARRERA_PWM_MAX * CARRERA_MPS_POR_PWM;   //2.6 m/s
+  if ((PARAM.velo_recta < 0.0f) || (PARAM.velo_recta > v_max)) PARAM.velo_recta = PARAM_V_LINEA_DEF;
+  if ((PARAM.velo_freno < 0.0f) || (PARAM.velo_freno > v_max)) PARAM.velo_freno = PARAM_V_FRENO_DEF;
+  if (PARAM.freno_ms < 0.0f) PARAM.freno_ms = 0.0f;
 
   //tau en multiplos de Ts, kaw como factor de Ki/Kp (igual que el panel)
   float kaw = (PARAM.kp > 0.0f) ? PARAM.kaw * PARAM.ki / PARAM.kp : 0.0f;
@@ -78,6 +90,16 @@ static uint8_t Param_valido(const PARAMETROS *p)
 }
 
 
+//1 = datos validos de una version vieja: su crc estaba en el byte off_crc
+static uint8_t Param_vieja_valida(const PARAMETROS *p, uint32_t version, uint32_t off_crc)
+{
+  uint32_t crc;
+  if ((p->marca != PARAM_MARCA) || (p->version != version)) return 0;
+  memcpy(&crc, (const uint8_t *)p + off_crc, sizeof(crc));
+  return crc == Flash_crc32(p, off_crc);
+}
+
+
 uint8_t Param_init(void)
 {
   PARAMETROS leido;
@@ -89,8 +111,23 @@ uint8_t Param_init(void)
     return 1;
   }
 
-  Param_defecto();
-  return 0;
+  //versiones viejas: la misma struct pero mas corta (los campos nuevos van al final).
+  //Su crc esta donde hoy empieza el primer campo que no tenian
+  if (Param_vieja_valida(&leido, 3u, offsetof(PARAMETROS, giro_recta)))
+    leido.giro_recta = 0.0f;                           //no tenia GIRO_LIM: no usa el IMU
+  else if (!Param_vieja_valida(&leido, 4u, offsetof(PARAMETROS, velo_freno)))
+  {
+    Param_defecto();                                   //nada valido
+    return 0;
+  }
+
+  //3 y 4: V_LINEA estaba en PWM y no habia freno -> valores por defecto
+  PARAM = leido;
+  PARAM.velo_recta = PARAM_V_LINEA_DEF;
+  PARAM.velo_freno = PARAM_V_FRENO_DEF;
+  PARAM.freno_ms   = PARAM_T_FRENO_DEF;
+  PARAM.version    = PARAM_VERSION;                    //al GUARDAR queda en la version nueva
+  return 1;
 }
 
 
@@ -106,12 +143,13 @@ uint8_t Param_guardar(void)
 }
 
 
-//lee una trama "DAT/kp/ki/kd/Vb/Vg/tau/kaw/Kg/errrect/velrect/largorect/color/"
-//y cambia los valores en RAM (no graba en flash)
+//lee una trama "DAT/kp/ki/kd/Vb/Vg/tau/kaw/Kg/errrect/velrect/largorect/color/girorect/vfreno/tfreno/"
+//y cambia los valores en RAM (no graba en flash).
+//girorect, vfreno y tfreno son opcionales (tramas viejas de la SD)
 uint8_t Param_desde_trama(const char *trama)
 {
   char copia[200];
-  float v[12];
+  float v[15];
   uint8_t n = 0;
 
   const char *ini = strstr(trama, "DAT/");
@@ -121,7 +159,7 @@ uint8_t Param_desde_trama(const char *trama)
   copia[sizeof(copia) - 1] = 0;
 
   char *tok = strtok(copia, "/\r\n");
-  while ((tok != NULL) && (n < 12))
+  while ((tok != NULL) && (n < 15))
   {
     v[n++] = strtof(tok, NULL);
     tok = strtok(NULL, "/\r\n");
@@ -141,6 +179,8 @@ uint8_t Param_desde_trama(const char *trama)
   PARAM.velo_recta  = v[9];
   PARAM.largo_recta = v[10];
   PARAM.linea_color = (uint32_t)v[11];
+  if (n >= 13) PARAM.giro_recta = v[12];
+  if (n >= 15) { PARAM.velo_freno = v[13]; PARAM.freno_ms = v[14]; }
   return 1;
 }
 
@@ -148,8 +188,9 @@ uint8_t Param_desde_trama(const char *trama)
 //escribe los valores actuales en el mismo formato de la trama
 void Param_a_trama(char *texto)
 {
-  sprintf(texto, "DAT/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%lu/\r\n",
+  sprintf(texto, "DAT/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%lu/%.2f/%.2f/%.0f/\r\n",
           PARAM.kp, PARAM.ki, PARAM.kd, PARAM.velo_basica, PARAM.vel_giro,
           PARAM.tau, PARAM.kaw, PARAM.kg, PARAM.error_recta, PARAM.velo_recta,
-          PARAM.largo_recta, (unsigned long)PARAM.linea_color);
+          PARAM.largo_recta, (unsigned long)PARAM.linea_color, PARAM.giro_recta,
+          PARAM.velo_freno, PARAM.freno_ms);
 }

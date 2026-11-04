@@ -27,7 +27,8 @@
 
 //sensores que se usan: bit 0 = I8 ... bit 15 = D8. Un sensor en 0 se ignora (normalizado = 0)
 //ej. sin D8: 0x7FFF    todos: 0xFFFF
-#define IR_SENSORES_ACTIVOS  0x7FFF   //PRUEBA 03/11/2026: sin D8 (fondo alto, linea fantasma)
+//#define IR_SENSORES_ACTIVOS  0x7FFF   //PRUEBA 03/11/2026: sin D8 (fondo alto, linea fantasma)
+#define IR_SENSORES_ACTIVOS  0xFFFF   //PRUEBA 03/11/2026: sin D8 (fondo alto, linea fantasma)
 
 //calculo de la posicion (Calcula_Pesos)
 #define umbral_peso   0.25f //cada sensor aporta (valor - umbral_peso): el ruido bajo esto no cuenta

@@ -6,12 +6,26 @@
  *
  *  Maquina de estados de la CARRERA del seguidor.
  *
- *     REPOSO --(RUN / START IR)--> ARRANQUE --(llega a V_Bas)--> PID
- *        ^                                                          |
- *        +------------(STOP serial / STOP IR / pierde la linea)-----+   (frena)
+ *     REPOSO --(RUN / START IR)--> ARRANQUE --(llega a V_Bas)--> PID ----> RECTA
+ *        ^                                                       ^ ^          |
+ *        |                                                       | +-- FRENO <+ (sale de la recta)
+ *        |                                                       +------------+ (ya iba lento)
+ *        +------------(STOP serial / STOP IR / pierde la linea)--- cualquiera   (frena)
  *
- *  Por ahora REPOSO, ARRANQUE y PID. RECTA, CURVA, FRENO y PERDIDO ya estan en el enum
- *  para agregarlos despues (ver "PARA AGREGAR UN ESTADO").
+ *  RECTA (panel: Error_LIM, GIRO_LIM, TRAMO, V_LINEA; se guardan en flash con PARAM):
+ *    una muestra "es recta" si  |posicion| <= Error_LIM  y  |giro_z| <= GIRO_LIM
+ *    (GIRO_LIM = 0: no mira el IMU). Si lleva TRAMO cm seguidos asi (distancia del encoder)
+ *    PID -> RECTA: la velocidad base sube con la rampa CARRERA_ACEL hasta V_LINEA (m/s).
+ *    Error_LIM, TRAMO o V_LINEA en 0 = rectas apagadas.
+ *
+ *  FRENO (panel: V_FRENO m/s, T_FRENO ms): la primera muestra que NO es recta (viene curva)
+ *    -> si el robot va mas rapido que V_Bas: velocidad base = V_FRENO (el PID de velocidad
+ *       de las llantas frena fuerte, hasta con el motor al reves) sin dejar de seguir la linea.
+ *       Termina cuando ROBOT.velocidad ya bajo a V_Bas, o a los T_FRENO ms -> PID.
+ *    -> si ya va a V_Bas o menos (o T_FRENO = 0): directo a PID.
+ *
+ *  CURVA y PERDIDO ya estan en el enum para agregarlos despues
+ *  (ver "PARA AGREGAR UN ESTADO").
  *
  *  Lazos (los dos cada 5 ms):
  *    TIM6 (Carrera_control):  sensores -> posicion -> PID_DIR -> giro (PWM)
@@ -57,9 +71,9 @@ enum {
     CARRERA_REPOSO = 0,   //detenido (al entrar frena CARRERA_FRENO_MS y luego suelta)
     CARRERA_ARRANQUE,     //rampa de aceleracion: V_INICIAL -> V_Bas con CARRERA_ACEL
     CARRERA_PID,          //sigue la linea con PID_DIR y velocidad base
-    CARRERA_RECTA,        //(pendiente) recta detectada: velocidad de recta
+    CARRERA_RECTA,        //recta detectada: velocidad base V_LINEA
     CARRERA_CURVA,        //(pendiente) curva: baja la velocidad
-    CARRERA_FRENO,        //(pendiente) sale de la recta: frena antes de la curva
+    CARRERA_FRENO,        //sale de la recta: frena con V_FRENO hasta bajar a V_Bas
     CARRERA_PERDIDO,      //(pendiente) no ve la linea
     CARRERA_N
 };
@@ -98,6 +112,9 @@ enum {
 #define CARRERA_KV_CURVA    0.0f   //PWM por grado/s. 0 = apagado
 #define CARRERA_V_MIN_CURVA 120.0f //PWM: la velocidad base nunca baja de esto por el IMU
                                    //(si V_Bas es menor, manda V_Bas)
+
+//FRENO: solo frena si al salir de la recta va mas rapido que V_Bas + este margen (m/s)
+#define CARRERA_FRENO_MARGEN 0.05f
 //------------------------------------------------
 
 typedef struct {
@@ -108,6 +125,8 @@ typedef struct {
     float    v_base;          //velocidad base que se esta usando (PWM)
     uint8_t  frenando;        //1 = REPOSO con los motores frenados
     uint32_t sin_linea;       //muestras seguidas sin ver la linea
+    float    recta_ini;       //ROBOT.distancia (m) donde empezo el tramo recto actual
+    float    recta_cm;        //cm que lleva seguidos en recta (telemetria *RD*)
     volatile uint8_t aviso_perdido; //1 = se detuvo por perder la linea (lo avisa Carrera_tarea)
 } CARRERAS;
 

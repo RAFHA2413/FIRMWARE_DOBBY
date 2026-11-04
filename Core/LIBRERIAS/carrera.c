@@ -55,6 +55,83 @@ static void Carrera_lee_linea(void)
 }
 
 
+//------------------------------------------------ RECTAS
+//rectas encendidas: Error_LIM, TRAMO y V_LINEA > 0
+static uint8_t Carrera_rectas_on(void)
+{
+  return (PARAM.error_recta > 0.0f) && (PARAM.largo_recta > 0.0f) && (PARAM.velo_recta > 0.0f);
+}
+
+//1 = la muestra actual parece recta: ve la linea, |posicion| <= Error_LIM
+//y, si GIRO_LIM > 0, el robot casi no gira (|giro_z| <= GIRO_LIM)
+//(llamar despues de Carrera_sigue_linea, que actualiza la posicion)
+static uint8_t Carrera_es_recta(void)
+{
+  if (!flag_linea) return 0;
+
+  float e = CARRERA.posicion;
+  if (e < 0.0f) e = -e;
+  if (e > PARAM.error_recta) return 0;
+
+  if (PARAM.giro_recta > 0.0f)
+  {
+    float g = giro_z_filtrado;                         //grados/s
+    if (g < 0.0f) g = -g;
+    if (g > PARAM.giro_recta) return 0;
+  }
+  return 1;
+}
+
+//mide el tramo recto con la distancia del encoder (ROBOT.distancia).
+//1 = esta muestra es recta (recta_cm = cm seguidos);  0 = no lo es: el tramo vuelve a 0
+static uint8_t Carrera_mide_recta(void)
+{
+  if (!Carrera_rectas_on() || !Carrera_es_recta())
+  {
+    CARRERA.recta_ini = ROBOT.distancia;
+    CARRERA.recta_cm  = 0.0f;
+    return 0;
+  }
+
+  float d = ROBOT.distancia - CARRERA.recta_ini;       //m
+  if (d < 0.0f) d = -d;                                //por si el encoder cuenta al reves
+  CARRERA.recta_cm = d * 100.0f;
+  return 1;
+}
+
+//m/s del panel -> PWM equivalente (lo que usa la velocidad base), limitado 0..CARRERA_PWM_MAX
+static float Carrera_mps_a_pwm(float mps)
+{
+  float v = mps / CARRERA_MPS_POR_PWM;
+  if (v < 0.0f) v = 0.0f;
+  if (v > CARRERA_PWM_MAX) v = CARRERA_PWM_MAX;
+  return v;
+}
+
+//V_LINEA (m/s) como velocidad base en PWM
+static float Carrera_v_recta(void)
+{
+  return Carrera_mps_a_pwm(PARAM.velo_recta);
+}
+
+//sale de la recta: FRENO si va mas rapido que V_Bas (y T_FRENO > 0); si no, PID
+static void Carrera_sale_recta(void)
+{
+  float v_bas = Carrera_v_base() * CARRERA_MPS_POR_PWM;          //m/s
+  CARRERA.estado = ((PARAM.freno_ms > 0.0f) &&
+                    (ROBOT.velocidad > v_bas + CARRERA_FRENO_MARGEN)) ? CARRERA_FRENO
+                                                                      : CARRERA_PID;
+  CARRERA.cuenta = 0;
+}
+
+//empieza a contar un tramo nuevo desde donde esta el robot
+static void Carrera_recta_reset(void)
+{
+  CARRERA.recta_ini = ROBOT.distancia;
+  CARRERA.recta_cm  = 0.0f;
+}
+
+
 //se llama una vez al iniciar
 void Carrera_init(void)
 {
@@ -79,6 +156,7 @@ void Carrera_run(void)
   CARRERA.cuenta = 0;
   CARRERA.sin_linea = 0;
   CARRERA.aviso_perdido = 0;
+  Carrera_recta_reset();
 
   //rampa: arranca de una vez en V_INICIAL (rompe la inercia), sin pasarse de V_Bas
   float v_obj = Carrera_v_base();
@@ -186,16 +264,65 @@ void Carrera_control(void)
       {
         CARRERA.estado = CARRERA_PID;
         CARRERA.cuenta = 0;
+        Carrera_recta_reset();                         //el tramo recto se cuenta desde aqui
       }
       break;
     }
 
     case CARRERA_PID:
       CARRERA.v_base = Carrera_v_curva(Carrera_v_base());   //V_Bas, mas lento si gira rapido (IMU)
-      Carrera_sigue_linea(CARRERA.v_base, 1);
+      if (!Carrera_sigue_linea(CARRERA.v_base, 1)) break;   //se detuvo
 
-      //AQUI IRAN LAS TRANSICIONES: PID -> RECTA, PID -> PERDIDO ...
+      //PID -> RECTA: lleva TRAMO cm seguidos con la linea centrada (y sin girar)
+      if (Carrera_mide_recta() && (CARRERA.recta_cm >= PARAM.largo_recta))
+      {
+        CARRERA.estado = CARRERA_RECTA;
+        CARRERA.cuenta = 0;
+      }
       break;
+
+    case CARRERA_RECTA:
+    {
+      //apagaron las rectas desde el panel (Error_LIM, TRAMO o V_LINEA en 0) -> FRENO / PID
+      if (!Carrera_rectas_on())
+      {
+        Carrera_sale_recta();
+        Carrera_recta_reset();
+        break;
+      }
+
+      //sube la velocidad base con la rampa CARRERA_ACEL hasta V_LINEA (no patina)
+      //(si V_LINEA es menor que la velocidad actual, baja de una)
+      float v_obj = Carrera_v_recta();
+      CARRERA.v_base += CARRERA_ACEL * (CARRERA_TS_MS / 1000.0f);
+      if (CARRERA.v_base > v_obj) CARRERA.v_base = v_obj;
+
+      if (!Carrera_sigue_linea(CARRERA.v_base, 1)) break;   //se detuvo
+
+      //se acabo la recta: la linea salio de Error_LIM o gira mas que GIRO_LIM (viene curva)
+      //-> FRENO (o PID si ya va lento). El tramo vuelve a 0
+      if (!Carrera_mide_recta()) Carrera_sale_recta();
+      break;
+    }
+
+    case CARRERA_FRENO:
+    {
+      //velocidad base V_FRENO: el PID de velocidad de las llantas frena fuerte,
+      //pero el PID de linea sigue corrigiendo (la curva ya empezo)
+      CARRERA.v_base = Carrera_mps_a_pwm(PARAM.velo_freno);
+      if (!Carrera_sigue_linea(CARRERA.v_base, 1)) break;   //se detuvo
+
+      //FRENO -> PID: ya bajo a V_Bas, o paso el tiempo maximo T_FRENO
+      float v_bas = Carrera_v_base() * CARRERA_MPS_POR_PWM;  //m/s
+      if ((ROBOT.velocidad <= v_bas) ||
+          ((float)(CARRERA.cuenta * CARRERA_TS_MS) >= PARAM.freno_ms))
+      {
+        CARRERA.estado = CARRERA_PID;
+        CARRERA.cuenta = 0;
+        Carrera_recta_reset();
+      }
+      break;
+    }
 
     default:   //estados pendientes: por seguridad vuelve a PID
       CARRERA.estado = CARRERA_PID;
