@@ -122,6 +122,18 @@ enum {
 #define CARRERA_COMP_TREND_ALPHA 0.20f
 #define CARRERA_COMP_TREND_MAX 30.0f
 
+// DOBBY Competition V3: refuerzo solo en PID con linea centrada y giro pequeno.
+// 0 = desactiva V3 completamente y conserva V2 (recomendado como comparacion).
+// No modifica los PID, la recuperacion de linea ni las protecciones originales.
+#define CARRERA_COMP_PID_BOOST 1
+#define CARRERA_COMP_PID_BONUS_PWM 45.0f     // mejora experimental; probar primero con seguridad
+#define CARRERA_COMP_PID_ERROR_MAX 0.55f     // centros de sensores en unidades de posicion
+#define CARRERA_COMP_PID_GIRO_MAX 10.0f     // grados por segundo filtrados
+#define CARRERA_COMP_PID_N_SENS_MAX 4       // evita acelerar sobre cruces anchos
+#define CARRERA_COMP_PID_CONF_MS 40        // confirmacion de trayectoria centrada
+#define CARRERA_COMP_PID_ACEL 600.0f       // PWM equivalentes por segundo
+#define CARRERA_COMP_PID_DESACEL 2500.0f   // retira el bonus al aparecer una curva
+
 #define CARRERA_KV_CURVA    0.0f   //PWM por grado/s. 0 = apagado
 #define CARRERA_V_MIN_CURVA 120.0f //PWM: la velocidad base nunca baja de esto por el IMU
                                    //(si V_Bas es menor, manda V_Bas)
