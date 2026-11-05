@@ -217,6 +217,8 @@ float Pista_mapa_replay_velocidad(float distancia_m, float v_base,
     return v_base; // no acelerar mientras corrige / no detecta la linea
   }
 
+  // Un pequeno retroceso/ruido del encoder no debe provocar unsigned wrap.
+  if (recorrido_m < 0.0f) recorrido_m = 0.0f;
   uint32_t cm = (uint32_t)(recorrido_m * 100.0f + 0.5f);
   while ((uint32_t)replay_indice + 1U < n_puntos &&
          pista[replay_indice+1U].distancia_cm <= cm)
