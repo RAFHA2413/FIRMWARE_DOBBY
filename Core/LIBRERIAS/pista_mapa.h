@@ -10,6 +10,22 @@
 #define PISTA_MAX_PUNTOS 4096U
 #define PISTA_PASO_M 0.02f
 
+// Perfiles seleccionables SIN volver a programar la placa.
+// La velocidad adicional solamente se aplica en PID y con linea visible.
+#define PISTA_PERFIL_SEGURO 1U
+#define PISTA_PERFIL_RAPIDO 2U
+#define PISTA_BONUS_SEGURO_PWM 30.0f
+#define PISTA_BONUS_RAPIDO_PWM 55.0f
+#define PISTA_LOOK_SEGURO_CM 35U
+#define PISTA_LOOK_RAPIDO_CM 45U
+#define PISTA_GIRO_CURVA_X10 550U  // |omega| >= 55 grados/s: curva
+#define PISTA_ERR_CURVA_X100 300U  // |posicion| >= 3.0: curva
+#define PISTA_GIRO_REAL_MAX 75.0f
+#define PISTA_ERR_REAL_MAX 2.5f
+#define PISTA_ACEL_PWM_S 700.0f
+#define PISTA_DESACEL_PWM_S 2400.0f
+#define PISTA_COBERTURA_MIN_PCT 60U
+
 enum {
   PISTA_VACIA = 0,
   PISTA_APRENDIENDO = 1,
@@ -22,6 +38,10 @@ void Pista_mapa_init(void);
 uint8_t Pista_mapa_iniciar(float distancia_m);
 uint8_t Pista_mapa_finalizar(float distancia_m);
 void Pista_mapa_cancelar(void);
+uint8_t Pista_mapa_replay_iniciar(float distancia_m, uint8_t perfil);
+float Pista_mapa_replay_velocidad(float distancia_m, float v_base,
+                                 float posicion, float giro_dps,
+                                 uint8_t hay_linea, uint8_t en_pid);
 void Pista_mapa_registrar(float distancia_m, float velocidad_mps,
                          float giro_dps, float posicion, uint8_t hay_linea);
 void Pista_mapa_estado_uart(void);
