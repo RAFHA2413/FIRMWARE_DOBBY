@@ -21,6 +21,14 @@ CARRERAS CARRERA = {CARRERA_REPOSO};
 
 static char tx[40];
 
+#if CARRERA_COMP_PID_BOOST
+static float comp_pid_bonus_pwm = 0.0f;
+static uint16_t comp_pid_buenas = 0;
+static volatile uint32_t comp_pid_boost_muestras = 0;
+static volatile uint32_t comp_pid_bonus_max = 0;
+static volatile uint8_t comp_pid_reporte = 0;
+#endif
+
 #if CARRERA_COMP_ADAPTATIVO
 // Persisten entre ciclos de control de 5 ms; se reinician con RUN.
 static float comp_e_anterior = 0.0f;
@@ -171,6 +179,13 @@ void Carrera_run(void)
   CARRERA.cuenta = 0;
   CARRERA.sin_linea = 0;
   CARRERA.aviso_perdido = 0;
+#if CARRERA_COMP_PID_BOOST
+  comp_pid_bonus_pwm = 0.0f;
+  comp_pid_buenas = 0;
+  comp_pid_boost_muestras = 0;
+  comp_pid_bonus_max = 0;
+  comp_pid_reporte = 0;
+#endif
 #if CARRERA_COMP_ADAPTATIVO
   comp_e_anterior = 0.0f;
   comp_tendencia = 0.0f;
@@ -217,6 +232,9 @@ static void Carrera_frena(void)
   MD_Freno();                                          //freno activo (los dos pines en 1)
   MI_Freno();
   CARRERA.frenando = 1;                                //al final: cuenta CARRERA_FRENO_MS y suelta
+#if CARRERA_COMP_PID_BOOST
+  comp_pid_reporte = 1;                                //enviar fuera de interrupcion
+#endif
 #if CARRERA_COMP_ADAPTATIVO
   comp_reporte_pendiente = 1;                           // Carrera_tarea reporta fuera de la ISR
 #endif
@@ -254,6 +272,69 @@ static float Carrera_comp_limita_recta(float v_pedida, float e_abs)
   float v_tope = v_bas + (Carrera_v_recta() - v_bas) * (1.0f - f);
   if (v_tope < v_bas) v_tope = v_bas;
   return (v_pedida > v_tope) ? v_tope : v_pedida;
+}
+#endif
+
+
+// DOBBY Competition V3: tiempo de vuelta. El estado PID ocupa la mayor parte
+// de la carrera; reforzar velocidad solo con linea valida, delgada y centrada.
+// No asume que un cruce completamente negro representa una recta.
+#if CARRERA_COMP_PID_BOOST
+static float Carrera_comp_pid_boost(float v_base)
+{
+  if (CARRERA.estado != CARRERA_PID)
+  {
+    comp_pid_bonus_pwm = 0.0f;
+    comp_pid_buenas = 0;
+    return v_base;
+  }
+
+  float e = CARRERA.posicion;
+  if (e < 0.0f) e = -e;
+  float w = giro_z_filtrado;
+  if (w < 0.0f) w = -w;
+
+  uint8_t n_linea = 0;
+  for (uint8_t k = 0; k < ir_n_sensores; k++)
+    if (Normalizados[k] > linea_blanco) n_linea++;
+
+  uint8_t apto = flag_linea &&
+                 (n_linea >= 1 && n_linea <= CARRERA_COMP_PID_N_SENS_MAX) &&
+                 (e <= CARRERA_COMP_PID_ERROR_MAX) &&
+                 (w <= CARRERA_COMP_PID_GIRO_MAX);
+  if (apto)
+  {
+    if (comp_pid_buenas < 65535U) comp_pid_buenas++;
+  }
+  else comp_pid_buenas = 0;
+
+  float objetivo = ((uint32_t)comp_pid_buenas * CARRERA_TS_MS >=
+                    CARRERA_COMP_PID_CONF_MS) ? CARRERA_COMP_PID_BONUS_PWM : 0.0f;
+  const float dt = CARRERA_TS_MS / 1000.0f;
+
+  // Sin linea se elimina la bonificacion inmediatamente, no se retiene.
+  if (!flag_linea) comp_pid_bonus_pwm = 0.0f;
+  else if (comp_pid_bonus_pwm < objetivo)
+  {
+    comp_pid_bonus_pwm += CARRERA_COMP_PID_ACEL * dt;
+    if (comp_pid_bonus_pwm > objetivo) comp_pid_bonus_pwm = objetivo;
+  }
+  else if (comp_pid_bonus_pwm > objetivo)
+  {
+    comp_pid_bonus_pwm -= CARRERA_COMP_PID_DESACEL * dt;
+    if (comp_pid_bonus_pwm < objetivo) comp_pid_bonus_pwm = objetivo;
+  }
+
+  if (comp_pid_bonus_pwm > 0.0f)
+  {
+    comp_pid_boost_muestras++;
+    uint32_t bonus_int = (uint32_t)(comp_pid_bonus_pwm + 0.5f);
+    if (bonus_int > comp_pid_bonus_max) comp_pid_bonus_max = bonus_int;
+  }
+
+  v_base += comp_pid_bonus_pwm;
+  if (v_base > CARRERA_PWM_MAX) v_base = CARRERA_PWM_MAX;
+  return v_base;
 }
 #endif
 
@@ -315,6 +396,21 @@ static uint8_t Carrera_sigue_linea(float v_base, uint8_t con_giro)
       }
     }
     CARRERA.v_base = v_base;
+  }
+#endif
+
+#if CARRERA_COMP_PID_BOOST
+  // La lectura de sensores es la del ciclo actual; nunca acelera sin linea.
+  if (CARRERA.estado == CARRERA_PID)
+  {
+    v_base = Carrera_comp_pid_boost(v_base);
+    CARRERA.v_base = v_base; // visible en la telemetria V_BASE
+  }
+  else
+  {
+    // Reinicio automatico cuando entramos en RECTA/FRENO/ARRANQUE.
+    comp_pid_bonus_pwm = 0.0f;
+    comp_pid_buenas = 0;
   }
 #endif
 
@@ -459,6 +555,19 @@ void Carrera_tarea(void)
 {
   static uint32_t t_tele = 0, t_est = 0;
   uint32_t ahora = HAL_GetTick();
+
+#if CARRERA_COMP_PID_BOOST
+  if (comp_pid_reporte && CARRERA.estado == CARRERA_REPOSO)
+  {
+    comp_pid_reporte = 0;
+    char reporte[100];
+    snprintf(reporte, sizeof(reporte), 
+             "COMP_V3 pid_boost_ms=%lu bonus_max_pwm=%lu\r\n",
+             (unsigned long)(comp_pid_boost_muestras * CARRERA_TS_MS),
+             (unsigned long)comp_pid_bonus_max);
+    uartx_write_text(&TELE_UART, reporte);
+  }
+#endif
 
 #if CARRERA_COMP_ADAPTATIVO
   // Informe solo despues de STOP/perdida; nunca transmite desde interrupciones.
