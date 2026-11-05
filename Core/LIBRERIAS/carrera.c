@@ -6,6 +6,7 @@
  */
 
 #include "carrera.h"
+#include "pista_mapa.h"
 #include "llanta.h"
 #include "PID.h"
 #include "parametros.h"
@@ -345,6 +346,10 @@ static float Carrera_comp_pid_boost(float v_base)
 static uint8_t Carrera_sigue_linea(float v_base, uint8_t con_giro)
 {
   Carrera_lee_linea();
+
+  // Competition V5: registro pasivo en RAM. No afecta velocidad ni PID.
+  Pista_mapa_registrar(ROBOT.distancia, ROBOT.velocidad, giro_z_filtrado,
+                      CARRERA.posicion, flag_linea);
 
 #if CARRERA_COMP_ADAPTATIVO
   // La posicion se actualiza cada 5 ms en ARRANQUE, PID, RECTA y FRENO.
