@@ -20,6 +20,7 @@ static volatile uint16_t n_puntos = 0U;
 static float origen_m = 0.0f;
 static float proxima_m = 0.0f;
 static volatile uint32_t ciclos_sin_linea = 0U;
+static volatile uint16_t puntos_linea_valida = 0U;
 static volatile uint32_t giro_max_x10 = 0U;
 static volatile uint32_t distancia_final_cm = 0U;
 static uint8_t aviso_interrupcion = 0U;
@@ -38,6 +39,7 @@ void Pista_mapa_init(void)
   origen_m = 0.0f;
   proxima_m = 0.0f;
   ciclos_sin_linea = 0U;
+  puntos_linea_valida = 0U;
   giro_max_x10 = 0U;
   distancia_final_cm = 0U;
   aviso_interrupcion = 0U;
@@ -52,6 +54,7 @@ uint8_t Pista_mapa_iniciar(float distancia_m)
   origen_m = distancia_m;
   proxima_m = 0.0f;
   ciclos_sin_linea = 0U;
+  puntos_linea_valida = 0U;
   giro_max_x10 = 0U;
   distancia_final_cm = 0U;
   aviso_interrupcion = 0U;
@@ -92,6 +95,7 @@ void Pista_mapa_registrar(float distancia_m, float velocidad_mps,
   p->reservado = 0U;
 
   n_puntos++;
+  if (hay_linea) puntos_linea_valida++;
   proxima_m = avance_m + PISTA_PASO_M;
 }
 
@@ -126,12 +130,13 @@ void Pista_mapa_estado_uart(void)
 {
   char linea[160];
   snprintf(linea, sizeof(linea),
-           "MAPA estado=%u puntos=%u longitud_cm=%lu sin_linea_ms=%lu giro_max_x10=%lu\r\n",
+           "MAPA estado=%u puntos=%u longitud_cm=%lu sin_linea_ms=%lu giro_max_x10=%lu validos_pct=%lu\r\n",
            (unsigned)estado_pista,
            (unsigned)n_puntos,
            (unsigned long)distancia_final_cm,
            (unsigned long)(ciclos_sin_linea * 5U),
-           (unsigned long)giro_max_x10);
+           (unsigned long)giro_max_x10,
+           (unsigned long)(n_puntos ? ((uint32_t)puntos_linea_valida * 100U / n_puntos) : 0U));
   uartx_write_text(&TELE_UART, linea);
 }
 
