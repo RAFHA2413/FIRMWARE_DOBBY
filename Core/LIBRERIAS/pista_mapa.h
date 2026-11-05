@@ -15,14 +15,14 @@
 #define PISTA_PERFIL_SEGURO 1U
 #define PISTA_PERFIL_RAPIDO 2U
 #define PISTA_BONUS_SEGURO_PWM 30.0f
-#define PISTA_BONUS_RAPIDO_PWM 55.0f
+#define PISTA_BONUS_RAPIDO_PWM 75.0f   // experimental: mas rapido, validar en pista
 #define PISTA_LOOK_SEGURO_CM 35U
-#define PISTA_LOOK_RAPIDO_CM 45U
+#define PISTA_LOOK_RAPIDO_CM 55U   // retira velocidad antes de curvas
 #define PISTA_GIRO_CURVA_X10 550U  // |omega| >= 55 grados/s: curva
 #define PISTA_ERR_CURVA_X100 300U  // |posicion| >= 3.0: curva
 #define PISTA_GIRO_REAL_MAX 75.0f
 #define PISTA_ERR_REAL_MAX 2.5f
-#define PISTA_ACEL_PWM_S 700.0f
+#define PISTA_ACEL_PWM_S 800.0f
 #define PISTA_DESACEL_PWM_S 2400.0f
 #define PISTA_COBERTURA_MIN_PCT 60U
 
