@@ -21,6 +21,15 @@ CARRERAS CARRERA = {CARRERA_REPOSO};
 
 static char tx[40];
 
+#if CARRERA_COMP_V4_PUENTE
+static float v4_pos_valida = 0.0f;
+static uint16_t v4_dropout_consec = 0U;
+static uint8_t v4_tiene_pos = 0U;
+static volatile uint32_t v4_puente_ciclos = 0U;
+static volatile uint32_t v4_eventos = 0U;
+static volatile uint8_t v4_reporte_pendiente = 0U;
+#endif
+
 #if CARRERA_COMP_PID_BOOST
 static float comp_pid_bonus_pwm = 0.0f;
 static uint16_t comp_pid_buenas = 0;
@@ -183,6 +192,14 @@ void Carrera_run(void)
   CARRERA.cuenta = 0;
   CARRERA.sin_linea = 0;
   CARRERA.aviso_perdido = 0;
+#if CARRERA_COMP_V4_PUENTE
+  v4_pos_valida = 0.0f;
+  v4_dropout_consec = 0U;
+  v4_tiene_pos = 0U;
+  v4_puente_ciclos = 0U;
+  v4_eventos = 0U;
+  v4_reporte_pendiente = 0U;
+#endif
 #if CARRERA_COMP_PID_BOOST
   comp_pid_bonus_pwm = 0.0f;
   comp_pid_buenas = 0;
@@ -240,6 +257,9 @@ static void Carrera_frena(void)
   MD_Freno();                                          //freno activo (los dos pines en 1)
   MI_Freno();
   CARRERA.frenando = 1;                                //al final: cuenta CARRERA_FRENO_MS y suelta
+#if CARRERA_COMP_V4_PUENTE
+  v4_reporte_pendiente = 1U;
+#endif
 #if CARRERA_COMP_PID_BOOST
   comp_pid_reporte = 1;                                //enviar fuera de interrupcion
 #endif
@@ -361,6 +381,30 @@ static float Carrera_comp_pid_boost(float v_base)
 static uint8_t Carrera_sigue_linea(float v_base, uint8_t con_giro)
 {
   Carrera_lee_linea();
+
+#if CARRERA_COMP_V4_PUENTE
+  // Sustituye solo entrada PID durante microcortes, NO el flag_linea real.
+  // Protecciones y deteccion RECTA mantienen el comportamiento original.
+  if (flag_linea)
+  {
+    v4_pos_valida = CARRERA.posicion;
+    v4_tiene_pos = 1U;
+    v4_dropout_consec = 0U;
+  }
+  else
+  {
+    if (v4_dropout_consec < 65535U) v4_dropout_consec++;
+    float e = (v4_pos_valida >= 0.0f) ? v4_pos_valida : -v4_pos_valida;
+    // Si ya estaba en un extremo, no impedir la recuperacion original.
+    if (v4_tiene_pos && e <= CARRERA_COMP_V4_MAX_POS &&
+        ((uint32_t)v4_dropout_consec * CARRERA_TS_MS) <= CARRERA_COMP_V4_MAX_MS)
+    {
+      CARRERA.posicion = v4_pos_valida;
+      v4_puente_ciclos++;
+      if (v4_dropout_consec == 1U) v4_eventos++;
+    }
+  }
+#endif
 
 #if CARRERA_COMP_ADAPTATIVO
   // La posicion se actualiza cada 5 ms en ARRANQUE, PID, RECTA y FRENO.
@@ -571,6 +615,19 @@ void Carrera_tarea(void)
 {
   static uint32_t t_tele = 0, t_est = 0;
   uint32_t ahora = HAL_GetTick();
+
+#if CARRERA_COMP_V4_PUENTE
+  if (v4_reporte_pendiente && CARRERA.estado == CARRERA_REPOSO)
+  {
+    v4_reporte_pendiente = 0U;
+    char reporte_v4[90];
+    snprintf(reporte_v4, sizeof(reporte_v4),
+             "COMP_V4 puente_ms=%lu eventos=%lu\r\n",
+             (unsigned long)(v4_puente_ciclos * CARRERA_TS_MS),
+             (unsigned long)v4_eventos);
+    uartx_write_text(&TELE_UART, reporte_v4);
+  }
+#endif
 
 #if CARRERA_COMP_PID_BOOST
   if (comp_pid_reporte && CARRERA.estado == CARRERA_REPOSO)
