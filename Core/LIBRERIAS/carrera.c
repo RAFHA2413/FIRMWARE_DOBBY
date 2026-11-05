@@ -21,6 +21,13 @@ CARRERAS CARRERA = {CARRERA_REPOSO};
 
 static char tx[40];
 
+#if CARRERA_COMP_ADAPTATIVO
+// Persisten entre ciclos de control de 5 ms; se reinician con RUN.
+static float comp_e_anterior = 0.0f;
+static float comp_tendencia = 0.0f;
+static uint8_t comp_tiene_muestra = 0;
+#endif
+
 
 //velocidad base pedida (V_Bas del panel), limitada por seguridad
 static float Carrera_v_base(void)
@@ -147,6 +154,11 @@ void Carrera_run(void)
   CARRERA.cuenta = 0;
   CARRERA.sin_linea = 0;
   CARRERA.aviso_perdido = 0;
+#if CARRERA_COMP_ADAPTATIVO
+  comp_e_anterior = 0.0f;
+  comp_tendencia = 0.0f;
+  comp_tiene_muestra = 0;
+#endif
   Carrera_recta_reset();
 
   //rampa: arranca de una vez en V_INICIAL (rompe la inercia), sin pasarse de V_Bas
@@ -185,29 +197,28 @@ void Carrera_stop(void)
   uartx_write_text(&TELE_UART, "CARRERA: REPOSO\r\n");
 }
 
-// DOBBY Competition V1: reduce la velocidad en RECTA antes de llegar
-// al umbral de salida Error_LIM. Actua sobre la consigna, sin cambiar el PID.
-// Cuando el error es pequeno conserva el perfil original de aceleracion.
-// Cuando el error crece, limita gradualmente la consigna hacia V_Bas.
-// La rampa de RECTA vuelve a acelerar desde esa velocidad si se recentra.
+// DOBBY Competition V2. En RECTA, la velocidad objetivo se limita solo
+// cuando el error lateral (actual + su tendencia positiva filtrada) crece.
+// Si el error decrece, se evita limitar por una desviacion residual grande.
+// El valor inferior de la consigna es V_Bas; mantiene el modo FRENO original.
 #if CARRERA_COMP_ADAPTATIVO
-static float Carrera_comp_limita_recta(float v_pedida)
+static float Carrera_comp_limita_recta(float v_pedida, float e_abs)
 {
   if (CARRERA_COMP_ERR_FIN <= CARRERA_COMP_ERR_INI) return v_pedida;
-
-  // Sin linea: no mantener aceleracion de RECTA.
   float v_bas = Carrera_v_base();
   if (!flag_linea) return (v_pedida > v_bas) ? v_bas : v_pedida;
 
-  float error = CARRERA.posicion;
-  if (error < 0.0f) error = -error;
-  if (error <= CARRERA_COMP_ERR_INI) return v_pedida;
+  // No frenar rectas cuando el robot esta volviendo al centro.
+  if (comp_tendencia <= 0.0f) return v_pedida;
 
-  float factor = (error - CARRERA_COMP_ERR_INI) /
-                 (CARRERA_COMP_ERR_FIN - CARRERA_COMP_ERR_INI);
-  if (factor > 1.0f) factor = 1.0f;
+  float e_previsto = e_abs + comp_tendencia * CARRERA_COMP_PRED_S;
+  if (e_previsto <= CARRERA_COMP_ERR_INI) return v_pedida;
 
-  float v_tope = v_bas + (Carrera_v_recta() - v_bas) * (1.0f - factor);
+  float f = (e_previsto - CARRERA_COMP_ERR_INI) /
+            (CARRERA_COMP_ERR_FIN - CARRERA_COMP_ERR_INI);
+  if (f > 1.0f) f = 1.0f;
+
+  float v_tope = v_bas + (Carrera_v_recta() - v_bas) * (1.0f - f);
   if (v_tope < v_bas) v_tope = v_bas;
   return (v_pedida > v_tope) ? v_tope : v_pedida;
 }
@@ -222,11 +233,29 @@ static uint8_t Carrera_sigue_linea(float v_base, uint8_t con_giro)
   Carrera_lee_linea();
 
 #if CARRERA_COMP_ADAPTATIVO
-  // La posicion recien leida afecta los motores en este mismo ciclo de 5 ms.
+  // La posicion se actualiza cada 5 ms en ARRANQUE, PID, RECTA y FRENO.
+  // Se filtra la variacion absoluta de error para rechazar picos de ruido.
+  float e_abs = CARRERA.posicion;
+  if (e_abs < 0.0f) e_abs = -e_abs;
+  if (comp_tiene_muestra)
+  {
+    float tendencia = (e_abs - comp_e_anterior) * (1000.0f / CARRERA_TS_MS);
+    if (tendencia > CARRERA_COMP_TREND_MAX) tendencia = CARRERA_COMP_TREND_MAX;
+    if (tendencia < -CARRERA_COMP_TREND_MAX) tendencia = -CARRERA_COMP_TREND_MAX;
+    comp_tendencia = CARRERA_COMP_TREND_ALPHA * tendencia +
+                     (1.0f - CARRERA_COMP_TREND_ALPHA) * comp_tendencia;
+  }
+  else
+  {
+    comp_tiene_muestra = 1;
+    comp_tendencia = 0.0f;
+  }
+  comp_e_anterior = e_abs;
+
   if (CARRERA.estado == CARRERA_RECTA)
   {
-    v_base = Carrera_comp_limita_recta(v_base);
-    CARRERA.v_base = v_base;  // telemetria V_BASE = consigna realmente utilizada
+    v_base = Carrera_comp_limita_recta(v_base, e_abs);
+    CARRERA.v_base = v_base;
   }
 #endif
 
