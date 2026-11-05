@@ -335,6 +335,29 @@ void procesa_rx(char *trama)
     return;
   }
 
+  // Replay mapado: la referencia fisica de salida se mantiene por el operador.
+  if (strstr(trama, "MAPRUN"))
+  {
+    if (!Robot_quieto())
+    {
+      uartx_write_text(&huart1, "MAPA: primero detener el robot\r\n");
+      return;
+    }
+    uint8_t perfil = strstr(trama, "MAPRUNFAST") ? PISTA_PERFIL_RAPIDO :
+                                                  PISTA_PERFIL_SEGURO;
+    if (!Pista_mapa_replay_iniciar(ROBOT.distancia, perfil))
+    {
+      uartx_write_text(&huart1, "MAPA: no valido o incompleto; haga APRENDER\r\n");
+      Pista_mapa_estado_uart();
+      return;
+    }
+    uartx_write_text(&huart1, perfil == PISTA_PERFIL_RAPIDO ?
+                      "MAPA: carrera RAPIDA iniciada\r\n" :
+                      "MAPA: carrera SEGURA iniciada\r\n");
+    Carrera_run();
+    return;
+  }
+
   //---------------- 3) PID de velocidad: VKP= VKI= VKD= VTAU= VKAW= VIZQ= VDER= VPID= VESC= VIDENT=
   if (Llanta_comando(trama)) return;
 
