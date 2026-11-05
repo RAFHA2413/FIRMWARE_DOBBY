@@ -617,6 +617,16 @@ class Panel(tk.Tk):
         self.led_recta = Led(p, d=28)
         self.led_recta.place(x=1172, y=600)
 
+        # Competition V5: botones de aprendizaje, sin modificar la pista.
+        # APRENDER inicia RUN y la grabacion. FIN VUELTA congela el mapa en RAM y frena.
+        self.etiqueta(p, 25, 655, "PISTA RAM", AZUL)
+        self.boton(p, 25, 680, "APRENDER", self.aprender_pista,
+                   ancho=9, color="#a9dfd6")
+        self.boton(p, 125, 680, "FIN VUELTA", self.fin_vuelta_pista,
+                   ancho=10, color="#f5d98a")
+        self.boton(p, 25, 718, "ESTADO MAPA",
+                   lambda: self.enviar("MAPSTATUS/"), ancho=12)
+
         # trama recibida
         self.etiqueta(p, 225, 618, "TRAMA")
         #lineas que llegaron con bytes perdidos en el enlace, de las de sensores que llegaron
@@ -748,6 +758,22 @@ class Panel(tk.Tk):
                 w.focus_set()
             except tk.TclError:
                 pass
+
+    def aprender_pista(self):
+        """Inicia una vuelta de reconocimiento V5 a velocidad de V3."""
+        if self.corriendo:
+            self.log("MAPA: detener primero el robot")
+            return
+        if self.enviar("MAPBEGIN/"):
+            self._pinta_run(True)
+            self.t_run_local = time.monotonic()
+            self.log("MAPA: aprendizaje solicitado; marque FIN VUELTA en la salida")
+
+    def fin_vuelta_pista(self):
+        """Marca el cierre del circuito y detiene DOBBY; el mapa queda solo en RAM."""
+        if self.enviar("MAPEND/"):
+            self._pinta_run(False)
+            self.t_run_local = time.monotonic()
 
     def run(self):
         """boton grande: muestra el ESTADO del robot y al hacer clic lo cambia
