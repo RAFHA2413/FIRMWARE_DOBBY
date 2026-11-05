@@ -26,6 +26,10 @@ static float comp_pid_bonus_pwm = 0.0f;
 static uint16_t comp_pid_buenas = 0;
 static volatile uint32_t comp_pid_boost_muestras = 0;
 static volatile uint32_t comp_pid_bonus_max = 0;
+static volatile uint32_t comp_pid_apto_muestras = 0;
+static volatile uint32_t comp_pid_bloqueo_error = 0;
+static volatile uint32_t comp_pid_bloqueo_giro = 0;
+static volatile uint32_t comp_pid_bloqueo_sens = 0;
 static volatile uint8_t comp_pid_reporte = 0;
 #endif
 
@@ -184,6 +188,10 @@ void Carrera_run(void)
   comp_pid_buenas = 0;
   comp_pid_boost_muestras = 0;
   comp_pid_bonus_max = 0;
+  comp_pid_apto_muestras = 0;
+  comp_pid_bloqueo_error = 0;
+  comp_pid_bloqueo_giro = 0;
+  comp_pid_bloqueo_sens = 0;
   comp_pid_reporte = 0;
 #endif
 #if CARRERA_COMP_ADAPTATIVO
@@ -302,8 +310,16 @@ static float Carrera_comp_pid_boost(float v_base)
                  (n_linea >= 1 && n_linea <= CARRERA_COMP_PID_N_SENS_MAX) &&
                  (e <= CARRERA_COMP_PID_ERROR_MAX) &&
                  (w <= CARRERA_COMP_PID_GIRO_MAX);
+  if (flag_linea)
+  {
+    if (e > CARRERA_COMP_PID_ERROR_MAX) comp_pid_bloqueo_error++;
+    if (w > CARRERA_COMP_PID_GIRO_MAX) comp_pid_bloqueo_giro++;
+    if (n_linea < 1 || n_linea > CARRERA_COMP_PID_N_SENS_MAX)
+      comp_pid_bloqueo_sens++;
+  }
   if (apto)
   {
+    comp_pid_apto_muestras++;
     if (comp_pid_buenas < 65535U) comp_pid_buenas++;
   }
   else comp_pid_buenas = 0;
@@ -565,6 +581,14 @@ void Carrera_tarea(void)
              "COMP_V3 pid_boost_ms=%lu bonus_max_pwm=%lu\r\n",
              (unsigned long)(comp_pid_boost_muestras * CARRERA_TS_MS),
              (unsigned long)comp_pid_bonus_max);
+    uartx_write_text(&TELE_UART, reporte);
+    snprintf(reporte, sizeof(reporte),
+             "COMP_V3_FILT apto_ms=%lu blq_error_ms=%lu "
+             "blq_giro_ms=%lu blq_sens_ms=%lu\r\n",
+             (unsigned long)(comp_pid_apto_muestras * CARRERA_TS_MS),
+             (unsigned long)(comp_pid_bloqueo_error * CARRERA_TS_MS),
+             (unsigned long)(comp_pid_bloqueo_giro * CARRERA_TS_MS),
+             (unsigned long)(comp_pid_bloqueo_sens * CARRERA_TS_MS));
     uartx_write_text(&TELE_UART, reporte);
   }
 #endif
