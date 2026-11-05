@@ -419,6 +419,14 @@ static uint8_t Carrera_sigue_linea(float v_base, uint8_t con_giro)
   }
 #endif
 
+  // V5: mejora de consigna anticipada usando mapa. No sustituye el PID,
+  // no desactiva rectas/freno del firmware probado ni cambia el flag_linea.
+  v_base = Pista_mapa_replay_velocidad(ROBOT.distancia, v_base,
+                                      CARRERA.posicion, giro_z_filtrado,
+                                      flag_linea,
+                                      (CARRERA.estado == CARRERA_PID));
+  if (CARRERA.estado == CARRERA_PID) CARRERA.v_base = v_base;
+
   //SEGURIDAD: si no ve la linea CARRERA_PERDIDO_MS seguidos (se salio de la pista) -> para
   if (flag_linea) CARRERA.sin_linea = 0;
   else if (++CARRERA.sin_linea * CARRERA_TS_MS >= CARRERA_PERDIDO_MS)
