@@ -619,13 +619,17 @@ class Panel(tk.Tk):
 
         # Competition V5: botones de aprendizaje, sin modificar la pista.
         # APRENDER inicia RUN y la grabacion. FIN VUELTA congela el mapa en RAM y frena.
-        self.etiqueta(p, 15, 655, "PISTA RAM", AZUL)
-        self.boton(p, 15, 677, "APRENDER", self.aprender_pista,
+        self.etiqueta(p, 15, 653, "PISTA RAM", AZUL)
+        self.boton(p, 128, 650, "ESTADO", lambda: self.enviar("MAPSTATUS/"),
+                   ancho=8)
+        self.boton(p, 15, 680, "APRENDER", self.aprender_pista,
                    ancho=10, color="#a9dfd6")
-        self.boton(p, 118, 677, "FIN VUELTA", self.fin_vuelta_pista,
+        self.boton(p, 118, 680, "FIN VUELTA", self.fin_vuelta_pista,
                    ancho=10, color="#f5d98a")
-        self.boton(p, 15, 715, "ESTADO MAPA",
-                   lambda: self.enviar("MAPSTATUS/"), ancho=11)
+        self.boton(p, 15, 716, "MAPA SEGURO", lambda: self.correr_mapa(False),
+                   ancho=10, color="#b9e4bd")
+        self.boton(p, 118, 716, "MAPA RAPIDO", lambda: self.correr_mapa(True),
+                   ancho=10, color="#f5c99e")
 
         # trama recibida
         self.etiqueta(p, 225, 618, "TRAMA")
@@ -774,6 +778,17 @@ class Panel(tk.Tk):
         if self.enviar("MAPEND/"):
             self._pinta_run(False)
             self.t_run_local = time.monotonic()
+
+    def correr_mapa(self, rapido=False):
+        """Inicia una vuelta usando la pista aprendida en RAM."""
+        if self.corriendo:
+            self.log("MAPA: detener antes de iniciar otra vuelta")
+            return
+        orden = "MAPRUNFAST/" if rapido else "MAPRUN/"
+        if self.enviar(orden):
+            self._pinta_run(True)
+            self.t_run_local = time.monotonic()
+            self.log("MAPA: salir desde el mismo punto y orientacion del aprendizaje")
 
     def run(self):
         """boton grande: muestra el ESTADO del robot y al hacer clic lo cambia
