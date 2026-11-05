@@ -54,6 +54,7 @@ extern UART_HandleTypeDef IR_AN_UART;
 extern uint16_t lecturas_ir_an[];
 extern float peso;
 extern uint8_t flag_linea;   //1 = algun sensor ve la linea (lo calcula Calcula_Pesos)
+extern float Normalizados[ir_n_sensores]; //lecturas 0..1 para detectar cruces anchos (Competition V3)
 
 
 void Sensores_init();
