@@ -109,14 +109,18 @@ enum {
                                    //(depende de como esta montado el MPU6050)
 
 //(opcional, apagado) bajar la velocidad base en curva: v = V_Bas - KV_CURVA * |giro_z|
-// DOBBY Competition V1: limitador anticipado de velocidad en RECTA.
-// 1 = experimental activo; 0 = comportamiento ORIGINAL del profesor.
-// No altera las ganancias PID, los encoders, el modo FRENO ni la memoria Flash.
+// DOBBY Competition V2: reduce velocidad SOLO si se aproxima a la curva
+// y el error lateral tiene tendencia a crecer. Evita penalizar la recuperacion.
+// 0 = algoritmo del profesor; 1 = limitador experimental habilitado.
+// No altera PID, modo FRENO, sensores, control de llantas ni parametros en flash.
 #define CARRERA_COMP_ADAPTATIVO 1
-// Error lateral absoluto donde comienza a limitar velocidad (posicion -7.5..7.5).
-#define CARRERA_COMP_ERR_INI 0.45f
-// A partir de este error, la consigna en RECTA se limita a V_Bas.
-#define CARRERA_COMP_ERR_FIN 1.30f
+// Umbrales de la desviacion prevista (unidades del arreglo de 16 sensores).
+#define CARRERA_COMP_ERR_INI 0.90f
+#define CARRERA_COMP_ERR_FIN 1.45f
+// Anticipacion basada en tendencia filtrada; NO observa curvas fuera del sensor.
+#define CARRERA_COMP_PRED_S 0.025f
+#define CARRERA_COMP_TREND_ALPHA 0.20f
+#define CARRERA_COMP_TREND_MAX 30.0f
 
 #define CARRERA_KV_CURVA    0.0f   //PWM por grado/s. 0 = apagado
 #define CARRERA_V_MIN_CURVA 120.0f //PWM: la velocidad base nunca baja de esto por el IMU
