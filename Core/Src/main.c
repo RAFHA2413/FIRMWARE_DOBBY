@@ -51,6 +51,7 @@
 #include "telemetria.h"
 #include "pruebas.h"
 #include "carrera.h"
+#include "pista_mapa.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -290,7 +291,47 @@ void procesa_rx(char *trama)
   {
     R_START = 0;
     R_STOP  = 0;
+    Pista_mapa_cancelar();    // STOP invalida una grabacion incompleta
     Carrera_stop();          //-> REPOSO: apaga PID, test y frena
+    return;
+  }
+
+  //---------------- V5: aprendizaje generico de una vuelta en RAM.
+  // No usa las ordenes RUN/STOP para activar mapa accidentalmente.
+  if (strstr(trama, "MAPBEGIN"))
+  {
+    if (!Robot_quieto())
+    {
+      uartx_write_text(&huart1, "MAPA: primero detener el robot\r\n");
+      return;
+    }
+    if (Pista_mapa_iniciar(ROBOT.distancia))
+    {
+      uartx_write_text(&huart1, "MAPA: aprendiendo, marque FIN al completar una vuelta\r\n");
+      Carrera_run(); // el control sigue siendo V3, sin velocidad anticipativa
+    }
+    return;
+  }
+
+  if (strstr(trama, "MAPEND"))
+  {
+    if (Pista_mapa_estado() != PISTA_APRENDIENDO)
+    {
+      uartx_write_text(&huart1, "MAPA: no hay aprendizaje en curso\r\n");
+      Pista_mapa_estado_uart();
+      return;
+    }
+    uint8_t completo = Pista_mapa_finalizar(ROBOT.distancia);
+    Carrera_stop();
+    uartx_write_text(&huart1, completo ? "MAPA: vuelta almacenada en RAM\r\n"
+                                      : "MAPA: vuelta incompleta (<1 m o <50 puntos)\r\n");
+    Pista_mapa_estado_uart();
+    return;
+  }
+
+  if (strstr(trama, "MAPSTATUS"))
+  {
+    Pista_mapa_estado_uart();
     return;
   }
 
@@ -607,6 +648,7 @@ delay_Init();
  Llanta_control_init();
 //maquina de estados de la carrera (arranca en REPOSO; corre en el TIM6)
  Carrera_init();
+ Pista_mapa_init();   // V5: inicializa buffer RAM, sin tocar la Flash
 
  //MD_Adelante(800);
  //MI_Adelante(800);
@@ -641,6 +683,7 @@ delay_Init();
     Aviso_tarea();    //apaga el parpadeo magenta de "llego un comando"
     Tarea_espera();   //robot quieto: posicion, giro y velocidades para el panel
     Carrera_tarea();  //estado de la carrera y telemetria de carrera
+    Pista_mapa_vigilar(CARRERA.estado == CARRERA_REPOSO);
     Prueba_tarea();   //maquina de estados del TEST (solo corre con TEST ON)
     Llanta_tarea();   //graficas del panel + resultados de la identificacion
     //sin HAL_Delay: Llanta_tarea lleva sus propios tiempos
