@@ -317,7 +317,9 @@ void procesa_rx(char *trama)
   {
     if (Pista_mapa_estado() != PISTA_APRENDIENDO)
     {
-      uartx_write_text(&huart1, "MAPA: no hay aprendizaje en curso\r\n");
+      // FIN VUELTA siempre detiene el robot, incluso si se lleno la RAM.
+      Carrera_stop();
+      uartx_write_text(&huart1, "MAPA: no hay aprendizaje activo / memoria llena\r\n");
       Pista_mapa_estado_uart();
       return;
     }
@@ -684,6 +686,14 @@ delay_Init();
     Tarea_espera();   //robot quieto: posicion, giro y velocidades para el panel
     Carrera_tarea();  //estado de la carrera y telemetria de carrera
     Pista_mapa_vigilar(CARRERA.estado == CARRERA_REPOSO);
+    // Proteccion al agotar el buffer: detener, nunca seguir sin registrar.
+    if (Pista_mapa_estado() == PISTA_LLENA &&
+        CARRERA.estado != CARRERA_REPOSO)
+    {
+      Carrera_stop();
+      uartx_write_text(&huart1, "MAPA: RAM completa, robot detenido\r\n");
+      Pista_mapa_estado_uart();
+    }
     Prueba_tarea();   //maquina de estados del TEST (solo corre con TEST ON)
     Llanta_tarea();   //graficas del panel + resultados de la identificacion
     //sin HAL_Delay: Llanta_tarea lleva sus propios tiempos
