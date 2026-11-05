@@ -35,6 +35,13 @@ static volatile uint32_t comp_limit_muestras = 0;
 static volatile uint32_t comp_recorte_suma_pwm = 0;
 static volatile uint32_t comp_recorte_max_pwm = 0;
 static volatile uint32_t comp_max_error_x100 = 0;
+// Datos de estado y calidad de seguimiento (5 ms por muestra).
+static volatile uint32_t comp_pid_muestras = 0;
+static volatile uint32_t comp_freno_muestras = 0;
+static volatile uint32_t comp_arranque_muestras = 0;
+static volatile uint32_t comp_sin_linea_muestras = 0;
+static volatile uint32_t comp_sin_linea_racha = 0;
+static volatile uint32_t comp_sin_linea_racha_max = 0;
 static volatile uint8_t comp_reporte_pendiente = 0;
 #endif
 
@@ -174,6 +181,12 @@ void Carrera_run(void)
   comp_recorte_suma_pwm = 0;
   comp_recorte_max_pwm = 0;
   comp_max_error_x100 = 0;
+  comp_pid_muestras = 0;
+  comp_freno_muestras = 0;
+  comp_arranque_muestras = 0;
+  comp_sin_linea_muestras = 0;
+  comp_sin_linea_racha = 0;
+  comp_sin_linea_racha_max = 0;
   comp_reporte_pendiente = 0;
 #endif
   Carrera_recta_reset();
@@ -272,6 +285,17 @@ static uint8_t Carrera_sigue_linea(float v_base, uint8_t con_giro)
   }
   comp_e_anterior = e_abs;
 
+  // El extremo +/-7.5 puede ser linea en borde O posicion de respaldo
+  // durante perdida. Registrar flag_linea por separado para distinguirlos.
+  if (!flag_linea)
+  {
+    comp_sin_linea_muestras++;
+    comp_sin_linea_racha++;
+    if (comp_sin_linea_racha > comp_sin_linea_racha_max)
+      comp_sin_linea_racha_max = comp_sin_linea_racha;
+  }
+  else comp_sin_linea_racha = 0;
+
   uint32_t e_x100 = (uint32_t)(e_abs * 100.0f + 0.5f);
   if (e_x100 > comp_max_error_x100) comp_max_error_x100 = e_x100;
 
@@ -332,6 +356,9 @@ void Carrera_control(void)
   CARRERA.cuenta++;
 #if CARRERA_COMP_ADAPTATIVO
   if (CARRERA.estado != CARRERA_REPOSO) comp_total_muestras++;
+  if (CARRERA.estado == CARRERA_PID) comp_pid_muestras++;
+  if (CARRERA.estado == CARRERA_FRENO) comp_freno_muestras++;
+  if (CARRERA.estado == CARRERA_ARRANQUE) comp_arranque_muestras++;
 #endif
 
   switch (CARRERA.estado)
@@ -451,6 +478,17 @@ void Carrera_tarea(void)
              (unsigned long)promedio,
              (unsigned long)comp_recorte_max_pwm,
              (unsigned long)comp_max_error_x100);
+    uartx_write_text(&TELE_UART, resumen);
+
+    // Segunda trama de diagnostico, sin modificar los comandos del panel.
+    snprintf(resumen, sizeof(resumen),
+             "COMP_EST arranque_ms=%lu pid_ms=%lu freno_ms=%lu "
+             "sin_linea_ms=%lu perdida_max_ms=%lu\r\n",
+             (unsigned long)(comp_arranque_muestras * CARRERA_TS_MS),
+             (unsigned long)(comp_pid_muestras * CARRERA_TS_MS),
+             (unsigned long)(comp_freno_muestras * CARRERA_TS_MS),
+             (unsigned long)(comp_sin_linea_muestras * CARRERA_TS_MS),
+             (unsigned long)(comp_sin_linea_racha_max * CARRERA_TS_MS));
     uartx_write_text(&TELE_UART, resumen);
   }
 #endif
