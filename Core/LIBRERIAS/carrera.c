@@ -26,6 +26,16 @@ static char tx[40];
 static float comp_e_anterior = 0.0f;
 static float comp_tendencia = 0.0f;
 static uint8_t comp_tiene_muestra = 0;
+
+// Instrumentacion diagnostica, sin modificar el control V2:
+// contadores de muestras a 5 ms; serial solo al detener (fuera de la ISR).
+static volatile uint32_t comp_total_muestras = 0;
+static volatile uint32_t comp_recta_muestras = 0;
+static volatile uint32_t comp_limit_muestras = 0;
+static volatile uint32_t comp_recorte_suma_pwm = 0;
+static volatile uint32_t comp_recorte_max_pwm = 0;
+static volatile uint32_t comp_max_error_x100 = 0;
+static volatile uint8_t comp_reporte_pendiente = 0;
 #endif
 
 
@@ -158,6 +168,13 @@ void Carrera_run(void)
   comp_e_anterior = 0.0f;
   comp_tendencia = 0.0f;
   comp_tiene_muestra = 0;
+  comp_total_muestras = 0;
+  comp_recta_muestras = 0;
+  comp_limit_muestras = 0;
+  comp_recorte_suma_pwm = 0;
+  comp_recorte_max_pwm = 0;
+  comp_max_error_x100 = 0;
+  comp_reporte_pendiente = 0;
 #endif
   Carrera_recta_reset();
 
@@ -187,6 +204,9 @@ static void Carrera_frena(void)
   MD_Freno();                                          //freno activo (los dos pines en 1)
   MI_Freno();
   CARRERA.frenando = 1;                                //al final: cuenta CARRERA_FRENO_MS y suelta
+#if CARRERA_COMP_ADAPTATIVO
+  comp_reporte_pendiente = 1;                           // Carrera_tarea reporta fuera de la ISR
+#endif
 }
 
 //cualquier estado -> REPOSO frenando (orden STOP por serial o STOP del control IR)
@@ -252,9 +272,24 @@ static uint8_t Carrera_sigue_linea(float v_base, uint8_t con_giro)
   }
   comp_e_anterior = e_abs;
 
+  uint32_t e_x100 = (uint32_t)(e_abs * 100.0f + 0.5f);
+  if (e_x100 > comp_max_error_x100) comp_max_error_x100 = e_x100;
+
   if (CARRERA.estado == CARRERA_RECTA)
   {
+    comp_recta_muestras++;
+    float v_antes = v_base;
     v_base = Carrera_comp_limita_recta(v_base, e_abs);
+    if (v_base < v_antes)
+    {
+      uint32_t recorte = (uint32_t)(v_antes - v_base + 0.5f);
+      if (recorte > 0)
+      {
+        comp_limit_muestras++;
+        comp_recorte_suma_pwm += recorte;
+        if (recorte > comp_recorte_max_pwm) comp_recorte_max_pwm = recorte;
+      }
+    }
     CARRERA.v_base = v_base;
   }
 #endif
@@ -295,6 +330,9 @@ static uint8_t Carrera_sigue_linea(float v_base, uint8_t con_giro)
 void Carrera_control(void)
 {
   CARRERA.cuenta++;
+#if CARRERA_COMP_ADAPTATIVO
+  if (CARRERA.estado != CARRERA_REPOSO) comp_total_muestras++;
+#endif
 
   switch (CARRERA.estado)
   {
@@ -394,6 +432,28 @@ void Carrera_tarea(void)
 {
   static uint32_t t_tele = 0, t_est = 0;
   uint32_t ahora = HAL_GetTick();
+
+#if CARRERA_COMP_ADAPTATIVO
+  // Informe solo despues de STOP/perdida; nunca transmite desde interrupciones.
+  // En la trama del panel aparece como texto: COMP_DIAG ...
+  if (comp_reporte_pendiente && CARRERA.estado == CARRERA_REPOSO)
+  {
+    comp_reporte_pendiente = 0;
+    char resumen[175];
+    uint32_t promedio = comp_limit_muestras ?
+                        (comp_recorte_suma_pwm / comp_limit_muestras) : 0;
+    snprintf(resumen, sizeof(resumen),
+             "COMP_DIAG total_ms=%lu recta_ms=%lu limite_ms=%lu "
+             "recorte_med_pwm=%lu recorte_max_pwm=%lu error_max_x100=%lu\r\n",
+             (unsigned long)(comp_total_muestras * CARRERA_TS_MS),
+             (unsigned long)(comp_recta_muestras * CARRERA_TS_MS),
+             (unsigned long)(comp_limit_muestras * CARRERA_TS_MS),
+             (unsigned long)promedio,
+             (unsigned long)comp_recorte_max_pwm,
+             (unsigned long)comp_max_error_x100);
+    uartx_write_text(&TELE_UART, resumen);
+  }
+#endif
 
   if (CARRERA.aviso_perdido)
   {
