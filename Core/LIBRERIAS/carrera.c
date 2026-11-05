@@ -185,12 +185,50 @@ void Carrera_stop(void)
   uartx_write_text(&TELE_UART, "CARRERA: REPOSO\r\n");
 }
 
+// DOBBY Competition V1: reduce la velocidad en RECTA antes de llegar
+// al umbral de salida Error_LIM. Actua sobre la consigna, sin cambiar el PID.
+// Cuando el error es pequeno conserva el perfil original de aceleracion.
+// Cuando el error crece, limita gradualmente la consigna hacia V_Bas.
+// La rampa de RECTA vuelve a acelerar desde esa velocidad si se recentra.
+#if CARRERA_COMP_ADAPTATIVO
+static float Carrera_comp_limita_recta(float v_pedida)
+{
+  if (CARRERA_COMP_ERR_FIN <= CARRERA_COMP_ERR_INI) return v_pedida;
+
+  // Sin linea: no mantener aceleracion de RECTA.
+  float v_bas = Carrera_v_base();
+  if (!flag_linea) return (v_pedida > v_bas) ? v_bas : v_pedida;
+
+  float error = CARRERA.posicion;
+  if (error < 0.0f) error = -error;
+  if (error <= CARRERA_COMP_ERR_INI) return v_pedida;
+
+  float factor = (error - CARRERA_COMP_ERR_INI) /
+                 (CARRERA_COMP_ERR_FIN - CARRERA_COMP_ERR_INI);
+  if (factor > 1.0f) factor = 1.0f;
+
+  float v_tope = v_bas + (Carrera_v_recta() - v_bas) * (1.0f - factor);
+  if (v_tope < v_bas) v_tope = v_bas;
+  return (v_pedida > v_tope) ? v_tope : v_pedida;
+}
+#endif
+
+
 //un paso de seguir la linea con la velocidad base v_base:
 //sensores -> seguridad (linea perdida) -> PID de linea -> velocidad de cada llanta
 //con_giro = 0: calcula el PID pero no corrige (va recto).  Devuelve 0 si tuvo que parar
 static uint8_t Carrera_sigue_linea(float v_base, uint8_t con_giro)
 {
   Carrera_lee_linea();
+
+#if CARRERA_COMP_ADAPTATIVO
+  // La posicion recien leida afecta los motores en este mismo ciclo de 5 ms.
+  if (CARRERA.estado == CARRERA_RECTA)
+  {
+    v_base = Carrera_comp_limita_recta(v_base);
+    CARRERA.v_base = v_base;  // telemetria V_BASE = consigna realmente utilizada
+  }
+#endif
 
   //SEGURIDAD: si no ve la linea CARRERA_PERDIDO_MS seguidos (se salio de la pista) -> para
   if (flag_linea) CARRERA.sin_linea = 0;
