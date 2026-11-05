@@ -6,8 +6,8 @@
 
 // V5: aprendizaje de cualquier circuito cerrado con linea visible.
 // Solo registra el recorrido; NO modifica el controlador de motores.
-// 2048 x 10 bytes = 20 KiB de RAM, una muestra por aprox. 2 cm.
-#define PISTA_MAX_PUNTOS 2048U
+// 4096 x 10 bytes = 40 KiB de RAM, una muestra por aprox. 2 cm.
+#define PISTA_MAX_PUNTOS 4096U
 #define PISTA_PASO_M 0.02f
 
 enum {
