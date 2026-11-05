@@ -619,13 +619,13 @@ class Panel(tk.Tk):
 
         # Competition V5: botones de aprendizaje, sin modificar la pista.
         # APRENDER inicia RUN y la grabacion. FIN VUELTA congela el mapa en RAM y frena.
-        self.etiqueta(p, 25, 655, "PISTA RAM", AZUL)
-        self.boton(p, 25, 680, "APRENDER", self.aprender_pista,
-                   ancho=9, color="#a9dfd6")
-        self.boton(p, 125, 680, "FIN VUELTA", self.fin_vuelta_pista,
+        self.etiqueta(p, 15, 655, "PISTA RAM", AZUL)
+        self.boton(p, 15, 677, "APRENDER", self.aprender_pista,
+                   ancho=10, color="#a9dfd6")
+        self.boton(p, 118, 677, "FIN VUELTA", self.fin_vuelta_pista,
                    ancho=10, color="#f5d98a")
-        self.boton(p, 25, 718, "ESTADO MAPA",
-                   lambda: self.enviar("MAPSTATUS/"), ancho=12)
+        self.boton(p, 15, 715, "ESTADO MAPA",
+                   lambda: self.enviar("MAPSTATUS/"), ancho=11)
 
         # trama recibida
         self.etiqueta(p, 225, 618, "TRAMA")
