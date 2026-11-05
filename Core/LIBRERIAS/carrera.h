@@ -127,10 +127,10 @@ enum {
 // No modifica los PID, la recuperacion de linea ni las protecciones originales.
 #define CARRERA_COMP_PID_BOOST 1
 #define CARRERA_COMP_PID_BONUS_PWM 45.0f     // mejora experimental; probar primero con seguridad
-#define CARRERA_COMP_PID_ERROR_MAX 0.55f     // centros de sensores en unidades de posicion
-#define CARRERA_COMP_PID_GIRO_MAX 10.0f     // grados por segundo filtrados
+#define CARRERA_COMP_PID_ERROR_MAX 0.90f     // centros de sensores en unidades de posicion
+#define CARRERA_COMP_PID_GIRO_MAX 15.0f     // grados por segundo filtrados
 #define CARRERA_COMP_PID_N_SENS_MAX 4       // evita acelerar sobre cruces anchos
-#define CARRERA_COMP_PID_CONF_MS 40        // confirmacion de trayectoria centrada
+#define CARRERA_COMP_PID_CONF_MS 20        // confirmacion de trayectoria centrada
 #define CARRERA_COMP_PID_ACEL 600.0f       // PWM equivalentes por segundo
 #define CARRERA_COMP_PID_DESACEL 2500.0f   // retira el bonus al aparecer una curva
 
