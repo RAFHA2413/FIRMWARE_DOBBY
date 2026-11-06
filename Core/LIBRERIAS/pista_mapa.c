@@ -77,6 +77,98 @@ static int16_t compacta_firmado(float x)
   return (int16_t)x;
 }
 
+// La memoria Flash esta mapeada: leerla no borra ni programa sectores.
+// Validacion obligatoria ANTES de copiar cualquier contenido a la RAM.
+uint8_t Pista_mapa_flash_valido(void)
+{
+  if (!Flash_zona_libre()) return 0U;
+
+  const PISTA_IMAGEN *f = (const PISTA_IMAGEN *)(uintptr_t)FLASH_MAPA_DIR;
+  const PISTA_CABECERA_FLASH *h = &f->cabecera;
+
+  if (h->marca != PISTA_FLASH_MARCA || h->version != PISTA_FLASH_VERSION)
+    return 0U;
+  if (h->cantidad < 50U || h->cantidad > PISTA_MAX_PUNTOS ||
+      h->longitud_cm < 100U || h->cantidad_validos > h->cantidad)
+    return 0U;
+
+  const uint32_t bytes = h->cantidad * (uint32_t)sizeof(PISTA_PUNTO);
+  if ((sizeof(PISTA_CABECERA_FLASH) + bytes) > FLASH_MAPA_TAM)
+    return 0U;
+  if (Flash_crc32(h, offsetof(PISTA_CABECERA_FLASH, crc_cabecera)) != h->crc_cabecera)
+    return 0U;
+  if (Flash_crc32(f->puntos, bytes) != h->crc_puntos)
+    return 0U;
+
+  // Evita reproduccion de registros desordenados por corrupcion.
+  uint16_t anterior = 0U;
+  for (uint32_t i = 0U; i < h->cantidad; i++)
+  {
+    if (i && f->puntos[i].distancia_cm <= anterior) return 0U;
+    if (f->puntos[i].linea_valida > 1U || f->puntos[i].reservado > 2U)
+      return 0U;
+    anterior = f->puntos[i].distancia_cm;
+  }
+  return 1U;
+}
+
+// Solo llamar con el robot detenido despues de MAPEND.
+// Escribe exclusivamente dentro de los 128 KiB del mapa, nunca en PARAM_DIR.
+uint8_t Pista_mapa_guardar_flash(void)
+{
+  if (estado_pista != PISTA_LISTA || replay_activo || n_puntos < 50U ||
+      n_puntos > PISTA_MAX_PUNTOS || distancia_final_cm < 100U)
+    return 0U;
+
+  PISTA_CABECERA_FLASH *h = &imagen.cabecera;
+  h->marca = PISTA_FLASH_MARCA;
+  h->version = PISTA_FLASH_VERSION;
+  h->cantidad = n_puntos;
+  h->longitud_cm = distancia_final_cm;
+  h->sin_linea_ciclos = ciclos_sin_linea;
+  h->giro_max_x10 = giro_max_x10;
+  h->cantidad_validos = puntos_linea_valida;
+  const uint32_t bytes_puntos = (uint32_t)n_puntos * sizeof(PISTA_PUNTO);
+  h->crc_puntos = Flash_crc32(pista, bytes_puntos);
+  h->crc_cabecera = Flash_crc32(h, offsetof(PISTA_CABECERA_FLASH, crc_cabecera));
+
+  const uint32_t bytes_total = sizeof(PISTA_CABECERA_FLASH) + bytes_puntos;
+  if (!Flash_guardar(FLASH_MAPA_DIR, FLASH_MAPA_TAM, &imagen, bytes_total))
+    return 0U;
+
+  return Pista_mapa_flash_valido();
+}
+
+// Al arrancar el micro: copia la ultima vuelta valida Flash -> RAM.
+// No utiliza ningun sector de parametros. No mueve los motores.
+uint8_t Pista_mapa_leer_flash(void)
+{
+  if (estado_pista == PISTA_APRENDIENDO || replay_activo)
+    return 0U;
+  if (!Pista_mapa_flash_valido())
+    return 0U;
+
+  const PISTA_IMAGEN *f = (const PISTA_IMAGEN *)(uintptr_t)FLASH_MAPA_DIR;
+  const uint32_t bytes = sizeof(PISTA_CABECERA_FLASH) +
+                         f->cabecera.cantidad * sizeof(PISTA_PUNTO);
+  estado_pista = PISTA_VACIA;
+  memcpy(&imagen, f, bytes);
+
+  n_puntos = (uint16_t)imagen.cabecera.cantidad;
+  distancia_final_cm = imagen.cabecera.longitud_cm;
+  ciclos_sin_linea = imagen.cabecera.sin_linea_ciclos;
+  giro_max_x10 = imagen.cabecera.giro_max_x10;
+  puntos_linea_valida = (uint16_t)imagen.cabecera.cantidad_validos;
+  replay_activo = 0U;
+  replay_perfil = 0U;
+  replay_bonus = 0.0f;
+  replay_indice = 0U;
+  origen_m = 0.0f;
+  proxima_m = 0.0f;
+  estado_pista = PISTA_LISTA;
+  return 1U;
+}
+
 void Pista_mapa_init(void)
 {
   estado_pista = PISTA_VACIA;
