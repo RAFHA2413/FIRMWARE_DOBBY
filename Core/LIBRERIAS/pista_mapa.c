@@ -1,10 +1,13 @@
 #include "pista_mapa.h"
 #include "telemetria.h"
 #include "uart.h"
+#include "flash_interna.h"
 #include <stdio.h>
+#include <stddef.h>
+#include <string.h>
 
 // Se compacta cada muestra: 2+2+2+2+1+1 = 10 bytes, sin malloc.
-// Solo RAM: el mapa desaparece al cortar la alimentacion.
+// V5.5: copia persistente con CRC en FLASH_MAPA_DIR; PARAMETROS en otro sector.
 typedef struct {
   uint16_t distancia_cm;
   int16_t giro_dps_x10;
@@ -14,7 +17,36 @@ typedef struct {
   uint8_t reservado;
 } PISTA_PUNTO;
 
-static PISTA_PUNTO pista[PISTA_MAX_PUNTOS];
+// Cabecera de version fija, con CRC de la cabecera y CRC independiente de los puntos.
+// Los dos CRC impiden usar un mapa parcial o corrupto tras un corte de energia.
+typedef struct {
+  uint32_t marca;
+  uint32_t version;
+  uint32_t cantidad;
+  uint32_t longitud_cm;
+  uint32_t sin_linea_ciclos;
+  uint32_t giro_max_x10;
+  uint32_t cantidad_validos;
+  uint32_t crc_puntos;
+  uint32_t crc_cabecera;
+} PISTA_CABECERA_FLASH;
+
+typedef struct {
+  PISTA_CABECERA_FLASH cabecera;
+  PISTA_PUNTO puntos[PISTA_MAX_PUNTOS];
+} PISTA_IMAGEN;
+
+#define PISTA_FLASH_MARCA   0x504D4244u  // DBMP
+#define PISTA_FLASH_VERSION 1u
+
+_Static_assert(sizeof(PISTA_PUNTO) == 10u, "El punto debe tener 10 bytes");
+_Static_assert(sizeof(PISTA_CABECERA_FLASH) == 36u, "Cabecera Flash de 36 bytes");
+_Static_assert(sizeof(PISTA_IMAGEN) <= FLASH_MAPA_TAM, "Mapa excede la zona reservada");
+
+// Una sola imagen en RAM: contiene los puntos y una cabecera para grabar.
+// Se evita duplicar una matriz de 40 KB en otra copia temporal.
+static PISTA_IMAGEN imagen;
+#define pista imagen.puntos
 static volatile uint8_t estado_pista = PISTA_VACIA;
 static volatile uint16_t n_puntos = 0U;
 static float origen_m = 0.0f;
