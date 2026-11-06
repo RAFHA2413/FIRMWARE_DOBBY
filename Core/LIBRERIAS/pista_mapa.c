@@ -407,14 +407,15 @@ void Pista_mapa_estado_uart(void)
 {
   char linea[220];
   snprintf(linea, sizeof(linea),
-           "MAPA estado=%u puntos=%u longitud_cm=%lu sin_linea_ms=%lu giro_max_x10=%lu validos_pct=%lu replay=%u perfil=%u\r\n",
+           "MAPA estado=%u puntos=%u longitud_cm=%lu sin_linea_ms=%lu giro_max_x10=%lu validos_pct=%lu replay=%u perfil=%u flash=%u\r\n",
            (unsigned)estado_pista,
            (unsigned)n_puntos,
            (unsigned long)distancia_final_cm,
            (unsigned long)(ciclos_sin_linea * 5U),
            (unsigned long)giro_max_x10,
            (unsigned long)(n_puntos ? ((uint32_t)puntos_linea_valida * 100U / n_puntos) : 0U),
-           (unsigned)replay_activo, (unsigned)replay_perfil);
+           (unsigned)replay_activo, (unsigned)replay_perfil,
+           (unsigned)Pista_mapa_flash_valido());
   uartx_write_text(&TELE_UART, linea);
 }
 
