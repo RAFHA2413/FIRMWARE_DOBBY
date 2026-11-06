@@ -5,8 +5,9 @@
 #include <stdint.h>
 
 // V5: aprendizaje de cualquier circuito cerrado con linea visible.
-// Solo registra el recorrido; NO modifica el controlador de motores.
-// 4096 x 10 bytes = 40 KiB de RAM, una muestra por aprox. 2 cm.
+// Registra y reproduce la pista en RAM y conserva una copia en Flash interna.
+// V5.5: se guarda solo al finalizar el aprendizaje y con los motores detenidos.
+// 4096 x 10 bytes = 40 KiB, una muestra por aprox. 2 cm.
 #define PISTA_MAX_PUNTOS 4096U
 #define PISTA_PASO_M 0.02f
 
@@ -38,6 +39,10 @@ void Pista_mapa_init(void);
 uint8_t Pista_mapa_iniciar(float distancia_m);
 uint8_t Pista_mapa_finalizar(float distancia_m);
 void Pista_mapa_cancelar(void);
+// No ejecutarlas durante carrera ni desde interrupciones.
+uint8_t Pista_mapa_guardar_flash(void);  // 1 = guardado y CRC verificado
+uint8_t Pista_mapa_leer_flash(void);    // 1 = mapa recuperado tras reiniciar
+uint8_t Pista_mapa_flash_valido(void);  // 1 = cabecera y datos validos
 uint8_t Pista_mapa_replay_iniciar(float distancia_m, uint8_t perfil);
 float Pista_mapa_replay_velocidad(float distancia_m, float v_base,
                                  float posicion, float giro_dps,
