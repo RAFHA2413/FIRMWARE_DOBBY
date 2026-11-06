@@ -325,14 +325,48 @@ void procesa_rx(char *trama)
     }
     uint8_t completo = Pista_mapa_finalizar(ROBOT.distancia);
     Carrera_stop();
-    uartx_write_text(&huart1, completo ? "MAPA: vuelta almacenada en RAM\r\n"
-                                      : "MAPA: vuelta incompleta (<1 m o <50 puntos)\r\n");
+    if (completo)
+    {
+      // El mapa ya esta congelado. Grabacion Flash exclusivamente desde main,
+      // con motores detenidos y nunca desde TIM6 ni interrupciones.
+      HAL_Delay(150);
+      uartx_write_text(&huart1, Pista_mapa_guardar_flash() ?
+                       "MAPA FLASH: GUARDADO OK + CRC; persiste al apagar\r\n" :
+                       "MAPA FLASH: ERROR DE GUARDADO; mapa solo en RAM\r\n");
+    }
+    else
+      uartx_write_text(&huart1, "MAPA: vuelta incompleta (<1 m o <50 puntos)\r\n");
     Pista_mapa_estado_uart();
     return;
   }
 
   if (strstr(trama, "MAPSTATUS"))
   {
+    Pista_mapa_estado_uart();
+    return;
+  }
+
+  // Para comprobacion y recuperacion manual. El mapa normal se guarda
+  // automaticamente con FIN VUELTA y se carga al encender.
+  if (strstr(trama, "MAPSAVE"))
+  {
+    if (!Robot_quieto())
+      uartx_write_text(&huart1, "MAPA FLASH: detenga el robot antes de guardar\r\n");
+    else
+      uartx_write_text(&huart1, Pista_mapa_guardar_flash() ?
+                       "MAPA FLASH: GUARDADO OK + CRC\r\n" :
+                       "MAPA FLASH: error / mapa no valido\r\n");
+    Pista_mapa_estado_uart();
+    return;
+  }
+  if (strstr(trama, "MAPLOAD"))
+  {
+    if (!Robot_quieto())
+      uartx_write_text(&huart1, "MAPA FLASH: detenga el robot antes de cargar\r\n");
+    else
+      uartx_write_text(&huart1, Pista_mapa_leer_flash() ?
+                       "MAPA FLASH: CARGADO OK desde Flash\r\n" :
+                       "MAPA FLASH: no hay mapa con CRC valido\r\n");
     Pista_mapa_estado_uart();
     return;
   }
@@ -673,7 +707,11 @@ delay_Init();
  Llanta_control_init();
 //maquina de estados de la carrera (arranca en REPOSO; corre en el TIM6)
  Carrera_init();
- Pista_mapa_init();   // V5: inicializa buffer RAM, sin tocar la Flash
+ Pista_mapa_init();
+ if (Pista_mapa_leer_flash())
+   uartx_write_text(&huart1, "MAPA FLASH: cargado automaticamente al arrancar\r\n");
+ else
+   uartx_write_text(&huart1, "MAPA FLASH: no hay mapa guardado valido; pulse APRENDER\r\n");
 
  //MD_Adelante(800);
  //MI_Adelante(800);
